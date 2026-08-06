@@ -113,18 +113,54 @@ function chatActionMarkup(conversationId) {
   };
 }
 
+function formatDateTime(value) {
+  if (!value) return "unknown";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function clipText(value, maxLength = 260) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
 function formatOpenChat(conversation) {
+  const lastSender = conversation.lastSender
+    ? conversation.lastSender.charAt(0).toUpperCase() + conversation.lastSender.slice(1)
+    : "None";
   const lines = [
-    `Chat #${conversation.id}`,
+    `Live chat #${conversation.id}`,
+    "",
+    "Visitor",
+    `Name: ${conversation.visitorName || "Visitor"}`,
+    `Email: ${conversation.visitorEmail || "not provided"}`,
+    "",
+    "Chat details",
+    `Status: ${conversation.status || "open"}`,
     `Widget key: ${conversation.publicKey}`,
-    `Visitor: ${conversation.visitorName}`,
+    `Assigned to: ${conversation.ownerUsername}`,
+    `Started: ${formatDateTime(conversation.createdAt)}`,
+    `Messages: ${conversation.messageCount || 0}`,
   ];
 
-  if (conversation.visitorEmail) lines.push(`Email: ${conversation.visitorEmail}`);
-  if (conversation.chatReason) lines.push(`Reason: ${conversation.chatReason}`);
-  if (conversation.lastMessage) lines.push(`Last: ${conversation.lastMessage}`);
+  if (conversation.chatReason) {
+    lines.push("", "Reason", clipText(conversation.chatReason));
+  }
 
-  lines.push(`Messages: ${conversation.messageCount || 0}`);
+  if (conversation.lastMessage) {
+    lines.push("", "Latest message", `${lastSender}: ${clipText(conversation.lastMessage)}`);
+    lines.push(`At: ${formatDateTime(conversation.lastMessageAt)}`);
+  }
+
   return lines.join("\n");
 }
 

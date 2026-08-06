@@ -30,10 +30,13 @@ function publicChatSummary(row) {
   return {
     id: row.id,
     publicKey: row.public_key,
+    ownerUsername: row.owner_username,
     visitorName: row.visitor_name,
     visitorEmail: row.visitor_email,
     chatReason: row.chat_reason,
+    status: row.status,
     lastMessage: row.last_message,
+    lastSender: row.last_sender,
     lastMessageAt: row.last_message_at,
     messageCount: row.message_count,
     createdAt: row.created_at,
@@ -129,9 +132,11 @@ async function listOpenConversationsForUser(telegramUserId) {
     `SELECT
        c.id,
        o.public_key,
+       o.username AS owner_username,
        c.visitor_name,
        c.visitor_email,
        c.chat_reason,
+       c.status,
        c.created_at,
        COUNT(m.id) AS message_count,
        (
@@ -141,6 +146,13 @@ async function listOpenConversationsForUser(telegramUserId) {
          ORDER BY cm.created_at DESC, cm.id DESC
          LIMIT 1
        ) AS last_message,
+       (
+         SELECT cm.sender
+         FROM chat_messages cm
+         WHERE cm.conversation_id = c.id
+         ORDER BY cm.created_at DESC, cm.id DESC
+         LIMIT 1
+       ) AS last_sender,
        (
          SELECT cm.created_at
          FROM chat_messages cm
@@ -155,7 +167,7 @@ async function listOpenConversationsForUser(telegramUserId) {
      LEFT JOIN chat_messages m ON m.conversation_id = c.id
      WHERE c.status = 'open'
        AND (u.role = 'owner' OR mine.public_key = o.public_key)
-     GROUP BY c.id, o.public_key, c.visitor_name, c.visitor_email, c.chat_reason, c.created_at
+     GROUP BY c.id, o.public_key, o.username, c.visitor_name, c.visitor_email, c.chat_reason, c.status, c.created_at
      ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC
      LIMIT 20`,
     [chatId, chatId]
