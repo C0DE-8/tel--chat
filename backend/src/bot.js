@@ -23,7 +23,8 @@ function createBot({ token, publicBaseUrl }) {
   if (!token) {
     return {
       start() {},
-      notifyOwner() {}
+      notifyOwner() {},
+      handleUpdate() {}
     };
   }
 
@@ -282,6 +283,9 @@ function createBot({ token, publicBaseUrl }) {
   return {
     start() {
       if (process.env.TELEGRAM_POLLING !== "false") poll();
+    },
+    async handleUpdate(update) {
+      if (update && update.message) await handleMessage(update.message);
     },
     notifyOwner
   };

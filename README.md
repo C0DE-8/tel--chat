@@ -103,4 +103,36 @@ GET /health
 ```
 
 This calls `db.status()` through the DBMS Gateway.
+
+## Vercel
+
+Set these environment variables in Vercel:
+
+```text
+SITE_ID=tel-chat
+API_KEY=full DBMS project API key
+DBMS_URL=https://api.dbms.copupbid.com
+DBMS_TIMEOUT_MS=15000
+PUBLIC_BASE_URL=https://tel-chat.vercel.app
+TELEGRAM_BOT_TOKEN=your Telegram bot token
+TELEGRAM_POLLING=false
+```
+
+Vercel uses `api/index.js` as the serverless API entry. Telegram polling is disabled on Vercel; use the webhook endpoint instead:
+
+```text
+https://tel-chat.vercel.app/api/telegram/webhook
+```
+
+After deploying, set the Telegram webhook once:
+
+```bash
+curl "https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/setWebhook?url=https://tel-chat.vercel.app/api/telegram/webhook"
+```
+
+Then verify:
+
+```bash
+curl https://tel-chat.vercel.app/health
+```
 # tel--chat
