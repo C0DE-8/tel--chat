@@ -230,7 +230,7 @@ async function findConversationByTelegramMessage({ telegramChatId, messageId }) 
   return rows[0] || null;
 }
 
-async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
+async function createConversation({ publicKey, visitorName, visitorEmail }) {
   const owner = await getOwnerByPublicKey(publicKey);
   if (!owner) {
     const error = new Error("Invalid widget key");
@@ -254,7 +254,7 @@ async function createConversation({ publicKey, visitorName, visitorEmail, chatRe
   const result = await db.execute(
     `INSERT INTO chat_conversations (owner_id, visitor_name, visitor_email, chat_reason, visitor_token)
      VALUES (?, ?, ?, ?, ?)`,
-    [owner.id, visitorName || "Visitor", visitorEmail || "", chatReason || null, token]
+    [owner.id, visitorName || "Visitor", visitorEmail || "", null, token]
   );
 
   const conversation = await getConversationById(result.insertId);
@@ -341,6 +341,20 @@ async function closeConversation(conversationId) {
   return { ok: true, message: `Chat #${conversation.id} ended.` };
 }
 
+async function clearConversationById(conversationId) {
+  const conversation = await getConversationById(conversationId);
+  if (!conversation) {
+    return { ok: true, message: "Chat already deleted." };
+  }
+
+  await db.execute("DELETE FROM chat_logs WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM telegram_chat_messages WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM chat_messages WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM chat_conversations WHERE id = ?", [conversation.id]);
+
+  return { ok: true, message: "Chat closed and deleted." };
+}
+
 async function clearConversation(visitorToken) {
   const conversation = await getConversationByToken(visitorToken);
   if (!conversation) {
@@ -404,18 +418,16 @@ async function notifyOwner(conversation, message) {
   }
 
   const bot = require("./bot");
-  const reasonLine = conversation.chat_reason ? `\nReason: ${conversation.chat_reason}` : "";
-  const bodyLine = conversation.chat_reason === message.body ? "" : `\n\n${message.body}`;
 
   for (const owner of linkedOwners) {
     const sent = await bot.sendMessage(
       owner.telegram_chat_id,
-      `Client: ${conversation.visitor_name}\nChat #${conversation.id}${reasonLine}${bodyLine}`,
+      `${conversation.visitor_name}\n${message.body}`,
       {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "View history", callback_data: `chat:view:${conversation.id}` },
+              { text: "Open", callback_data: `chat:open:${conversation.id}` },
               { text: "Close", callback_data: `chat:close:${conversation.id}` },
             ],
           ],
@@ -435,6 +447,7 @@ module.exports = {
   addOwnerReply,
   addVisitorMessage,
   canManageConversation,
+  clearConversationById,
   clearConversation,
   closeConversation,
   createConversation,

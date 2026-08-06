@@ -102,28 +102,23 @@ function userActionMarkup(user) {
   return { inline_keyboard: rows };
 }
 
-function chatActionMarkup(conversationId) {
+function activeChatMarkup(conversationId) {
   return {
     inline_keyboard: [
       [
-        { text: "View history", callback_data: `chat:view:${conversationId}` },
-      ],
-      [
-        { text: "Reply again", callback_data: `chat:reply:${conversationId}` },
+        { text: "Clear", callback_data: `chat:clear:${conversationId}` },
         { text: "Close", callback_data: `chat:close:${conversationId}` },
+        { text: "Back", callback_data: `chat:back:${conversationId}` },
       ],
     ],
   };
 }
 
 function chatListActionMarkup(conversation) {
-  const rows = [[{ text: "View history", callback_data: `chat:view:${conversation.id}` }]];
+  const rows = [[{ text: "Open", callback_data: `chat:open:${conversation.id}` }]];
 
   if (conversation.status === "open") {
-    rows.push([
-      { text: "Reply", callback_data: `chat:reply:${conversation.id}` },
-      { text: "Close", callback_data: `chat:close:${conversation.id}` },
-    ]);
+    rows.push([{ text: "Close", callback_data: `chat:close:${conversation.id}` }]);
   }
 
   return { inline_keyboard: rows };
@@ -170,10 +165,6 @@ function formatOpenChat(conversation) {
     `Messages: ${conversation.messageCount || 0}`,
   ].filter(Boolean);
 
-  if (conversation.chatReason) {
-    lines.push("", "Reason", clipText(conversation.chatReason));
-  }
-
   if (conversation.lastMessage) {
     lines.push("", "Latest message", `${lastSender}: ${clipText(conversation.lastMessage)}`);
     lines.push(`At: ${formatDateTime(conversation.lastMessageAt)}`);
@@ -200,10 +191,6 @@ function formatConversationHistory(result) {
     conversation.rating ? `Rating: ${conversation.rating}/5` : null,
   ].filter(Boolean);
 
-  if (conversation.chatReason) {
-    lines.push("", "Reason", clipText(conversation.chatReason, 180));
-  }
-
   lines.push("", `Messages (${messages.length})`);
 
   if (!messages.length) {
@@ -212,6 +199,26 @@ function formatConversationHistory(result) {
     for (const message of messages) {
       const sender = message.sender === "owner" ? "Agent" : message.sender === "visitor" ? "Client" : "System";
       lines.push(`${formatDateTime(message.createdAt)} - ${sender}: ${clipText(message.body, 180)}`);
+    }
+  }
+
+  return clipText(lines.join("\n"), 3900);
+}
+
+function formatActiveChat(result) {
+  const { conversation, messages } = result;
+  const lines = [
+    `${conversation.visitorName || "Client"}`,
+    conversation.visitorEmail ? conversation.visitorEmail : null,
+    "",
+  ].filter((line) => line !== null);
+
+  if (!messages.length) {
+    lines.push("No messages yet.");
+  } else {
+    for (const message of messages) {
+      const sender = message.sender === "owner" ? "You" : message.sender === "visitor" ? conversation.visitorName || "Client" : "System";
+      lines.push(`${sender}: ${clipText(message.body, 220)}`);
     }
   }
 
@@ -242,6 +249,14 @@ async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
   }
 
   await sendUiMessages(chatId, telegramUserId, items);
+}
+
+async function sendActiveChat(chatId, telegramUserId, conversationId) {
+  await botUsers.setPendingAction(telegramUserId, "active_chat", conversationId);
+  const result = await chat.listConversationHistory(conversationId);
+  await sendUiMessage(chatId, telegramUserId, formatActiveChat(result), {
+    reply_markup: activeChatMarkup(conversationId),
+  });
 }
 
 async function sendChatDashboard(chatId, telegramUserId, currentUser, introText = null) {
@@ -334,6 +349,18 @@ async function clearUiMessages(chatId, telegramUserId) {
   await botUsers.setUiMessageIds(telegramUserId, []);
 }
 
+async function deleteCallbackMessage(callbackQuery) {
+  const chatId = callbackQuery?.message?.chat?.id;
+  const messageId = callbackQuery?.message?.message_id;
+  if (!chatId || !messageId) return;
+
+  try {
+    await deleteMessage(chatId, messageId);
+  } catch {
+    // Telegram rejects deletes for messages that are too old or already gone.
+  }
+}
+
 async function sendUiMessage(chatId, telegramUserId, text, options = {}) {
   await clearUiMessages(chatId, telegramUserId);
   const sent = await sendMessage(chatId, text, options);
@@ -368,6 +395,92 @@ async function handleMessage(message) {
   const text = rawText.toLowerCase();
   const profile = botUsers.telegramProfile(message);
   const currentUser = await botUsers.getCurrentUser(profile.telegramUserId);
+  const pendingSession = await botUsers.getPendingSession(profile.telegramUserId);
+  const activeNavigationTexts = new Set([
+    LOGIN_BUTTON_TEXT.toLowerCase(),
+    REGISTER_BUTTON_TEXT.toLowerCase(),
+    USERS_BUTTON_TEXT.toLowerCase(),
+    ADMIN_DASHBOARD_BUTTON_TEXT.toLowerCase(),
+    USER_DASHBOARD_BUTTON_TEXT.toLowerCase(),
+    LOGOUT_BUTTON_TEXT.toLowerCase(),
+    "chat",
+    "/chat",
+    "/start",
+  ]);
+
+  if (rawText && pendingSession?.action === "active_chat" && activeNavigationTexts.has(text)) {
+    await botUsers.clearPendingAction(profile.telegramUserId);
+  }
+
+  if (rawText && pendingSession?.action === "active_chat" && !activeNavigationTexts.has(text)) {
+    if (text === "back") {
+      if (message.message_id && text !== "/start") {
+        try {
+          await deleteMessage(message.chat.id, message.message_id);
+        } catch {
+          // Best effort: private-chat user messages may already be gone or not deletable.
+        }
+      }
+      await botUsers.clearPendingAction(profile.telegramUserId);
+      await sendChatDashboard(message.chat.id, profile.telegramUserId, currentUser);
+      return;
+    }
+
+    if (text === "clear" || text === "/clear") {
+      if (message.message_id) {
+        try {
+          await deleteMessage(message.chat.id, message.message_id);
+        } catch {
+          // Best effort: private-chat user messages may already be gone or not deletable.
+        }
+      }
+      await clearUiMessages(message.chat.id, profile.telegramUserId);
+      return;
+    }
+
+    const canManageActive = currentUser && (await chat.canManageConversation(profile.telegramUserId, pendingSession.conversation_id));
+    if (!canManageActive) {
+      await botUsers.clearPendingAction(profile.telegramUserId);
+      await sendUiMessage(message.chat.id, profile.telegramUserId, "Login to manage this chat.", {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    if (text === "close" || text === "/close") {
+      if (message.message_id && text !== "/start") {
+        try {
+          await deleteMessage(message.chat.id, message.message_id);
+        } catch {
+          // Best effort: private-chat user messages may already be gone or not deletable.
+        }
+      }
+      const result = await chat.clearConversationById(pendingSession.conversation_id);
+      await botUsers.clearPendingAction(profile.telegramUserId);
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    const result = await chat.addOwnerReply(pendingSession.conversation_id, rawText);
+    if (result.ok && message.message_id) {
+      await chat.rememberTelegramMessage({
+        telegramChatId: message.chat.id,
+        messageId: message.message_id,
+        conversationId: pendingSession.conversation_id,
+        direction: "owner",
+      });
+    }
+
+    if (!result.ok) {
+      await botUsers.clearPendingAction(profile.telegramUserId);
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
+        reply_markup: menuMarkup(currentUser),
+      });
+    }
+    return;
+  }
 
   if (rawText && message.reply_to_message?.message_id) {
     const conversation = await chat.findConversationByTelegramMessage({
@@ -399,10 +512,11 @@ async function handleMessage(message) {
           conversationId: conversation.id,
           direction: "owner",
         });
+        return;
       }
 
-      await sendUiMessage(message.chat.id, profile.telegramUserId, result.ok ? "Delivered to client." : result.message, {
-        reply_markup: result.ok ? chatActionMarkup(conversation.id) : menuMarkup(currentUser),
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
+        reply_markup: menuMarkup(currentUser),
       });
       return;
     }
@@ -487,7 +601,6 @@ async function handleMessage(message) {
 
   const directLoginText = text.startsWith("login ") ? rawText.slice(6) : null;
   const directRegisterText = text.startsWith("register ") ? rawText.slice(9) : null;
-  const pendingSession = await botUsers.getPendingSession(profile.telegramUserId);
   const action = directLoginText ? "login" : directRegisterText ? "register" : pendingSession?.action;
 
   if (action === "login" || action === "register") {
@@ -520,11 +633,12 @@ async function handleMessage(message) {
   if (action === "reply_chat") {
     const result = await chat.addOwnerReply(pendingSession.conversation_id, rawText);
     await botUsers.clearPendingAction(profile.telegramUserId);
-    const options = result.ok
-      ? { reply_markup: chatActionMarkup(pendingSession.conversation_id) }
-      : { reply_markup: menuMarkup(currentUser) };
 
-    await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, options);
+    if (!result.ok) {
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
+        reply_markup: menuMarkup(currentUser),
+      });
+    }
     return;
   }
 
@@ -632,31 +746,38 @@ async function handleCallbackQuery(callbackQuery) {
     return;
   }
 
-  if (action === "reply") {
-    await botUsers.setPendingAction(telegramUserId, "reply_chat", conversationId);
-    await answerCallbackQuery(callbackQuery.id, `Replying to chat #${conversationId}`);
-    await sendUiMessage(chatId, telegramUserId, `Send your reply for chat #${conversationId}.`, {
-      reply_markup: menuMarkup(currentUser),
-    });
+  if (action === "open" || action === "view" || action === "reply") {
+    await answerCallbackQuery(callbackQuery.id, `Opened chat #${conversationId}`);
+    await deleteCallbackMessage(callbackQuery);
+    await sendActiveChat(chatId, telegramUserId, conversationId);
     return;
   }
 
-  if (action === "view") {
-    const result = await chat.listConversationHistory(conversationId);
-    await answerCallbackQuery(callbackQuery.id, `Chat #${conversationId}`);
-    await sendUiMessage(chatId, telegramUserId, formatConversationHistory(result), {
-      reply_markup: chatListActionMarkup(result.conversation),
-    });
+  if (action === "clear") {
+    await answerCallbackQuery(callbackQuery.id, "Cleared.");
+    await clearUiMessages(chatId, telegramUserId);
+    return;
+  }
+
+  if (action === "back") {
+    await answerCallbackQuery(callbackQuery.id, "Back.");
+    await botUsers.clearPendingAction(telegramUserId);
+    await sendChatDashboard(chatId, telegramUserId, currentUser);
     return;
   }
 
   if (action === "close") {
-    const result = await chat.closeConversation(conversationId);
+    const result = await chat.clearConversationById(conversationId);
     await answerCallbackQuery(callbackQuery.id, result.message);
+    await botUsers.clearPendingAction(telegramUserId);
+    await deleteCallbackMessage(callbackQuery);
     await sendUiMessage(chatId, telegramUserId, result.message, {
       reply_markup: menuMarkup(currentUser),
     });
+    return;
   }
+
+  await answerCallbackQuery(callbackQuery.id, "Unknown chat action.");
 }
 
 async function handleUpdate(update) {

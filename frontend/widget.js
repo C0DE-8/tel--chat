@@ -149,7 +149,6 @@
     if (noticeEl) noticeEl.style.display = "none";
     const visitorName = String(formData.get("visitorName") || "").trim();
     const visitorEmail = String(formData.get("visitorEmail") || "").trim();
-    const chatReason = String(formData.get("chatReason") || "").trim();
 
     if (!visitorName || !visitorEmail) {
       renderSystem("Name and email are required.");
@@ -164,7 +163,6 @@
           publicKey,
           visitorName,
           visitorEmail,
-          chatReason,
         }),
       });
 
@@ -303,8 +301,6 @@
     form.appendChild(el("input", { name: "visitorName", type: "text", placeholder: "Your name", required: "required" }));
     form.appendChild(el("label", { text: "Email" }));
     form.appendChild(el("input", { name: "visitorEmail", type: "email", placeholder: "you@example.com", required: "required" }));
-    form.appendChild(el("label", { text: "Reason for chat (optional)" }));
-    form.appendChild(el("textarea", { name: "chatReason", rows: "4", placeholder: "What can we help with?" }));
     form.appendChild(el("button", { type: "submit", text: "Start chat" }));
     form.addEventListener("submit", function (event) {
       event.preventDefault();

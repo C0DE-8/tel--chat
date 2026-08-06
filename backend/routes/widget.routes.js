@@ -19,21 +19,14 @@ router.get("/config", (req, res) => {
 
 router.post("/conversations", async (req, res) => {
   try {
-    const chatReason = String(req.body.chatReason || "").trim();
     const result = await chat.createConversation({
       publicKey: req.body.publicKey,
       visitorName: req.body.visitorName,
       visitorEmail: req.body.visitorEmail,
-      chatReason,
     });
     const { conversation, reused } = result;
 
-    let message = null;
-    if (chatReason && !reused) {
-      message = await chat.addVisitorMessage(conversation.visitorToken, chatReason);
-    }
-
-    res.status(reused ? 200 : 201).json({ ok: true, conversation, reused, message });
+    res.status(reused ? 200 : 201).json({ ok: true, conversation, reused });
   } catch (error) {
     sendError(res, error);
   }
