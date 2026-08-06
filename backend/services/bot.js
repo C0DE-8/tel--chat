@@ -1,4 +1,5 @@
 const botUsers = require("./bot-users");
+const chat = require("./chat");
 
 const telegramApiBase = () => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
@@ -9,7 +10,7 @@ let botInfo = null;
 let lastError = null;
 let webhookUrl = null;
 
-const PLANFAM_BUTTON_TEXT = "PlanFam";
+const CHAT_BUTTON_TEXT = "Chat";
 const LOGIN_BUTTON_TEXT = "Login";
 const REGISTER_BUTTON_TEXT = "Register";
 const USERS_BUTTON_TEXT = "Users";
@@ -22,7 +23,7 @@ function menuMarkup(user) {
     return {
       keyboard: [
         [{ text: ADMIN_DASHBOARD_BUTTON_TEXT }],
-        [{ text: USERS_BUTTON_TEXT }, { text: PLANFAM_BUTTON_TEXT }],
+        [{ text: USERS_BUTTON_TEXT }, { text: CHAT_BUTTON_TEXT }],
         [{ text: LOGOUT_BUTTON_TEXT }],
       ],
       resize_keyboard: true,
@@ -34,7 +35,7 @@ function menuMarkup(user) {
     return {
       keyboard: [
         [{ text: USER_DASHBOARD_BUTTON_TEXT }],
-        [{ text: PLANFAM_BUTTON_TEXT }],
+        [{ text: CHAT_BUTTON_TEXT }],
         [{ text: LOGOUT_BUTTON_TEXT }],
       ],
       resize_keyboard: true,
@@ -45,7 +46,7 @@ function menuMarkup(user) {
   return {
     keyboard: [
       [{ text: LOGIN_BUTTON_TEXT }, { text: REGISTER_BUTTON_TEXT }],
-      [{ text: PLANFAM_BUTTON_TEXT }],
+      [{ text: CHAT_BUTTON_TEXT }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
@@ -101,6 +102,13 @@ async function sendMessage(chatId, text, options = {}) {
     chat_id: chatId,
     text,
     ...options,
+  });
+}
+
+async function answerCallbackQuery(callbackQueryId, text) {
+  return telegram("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    text,
   });
 }
 
@@ -179,8 +187,8 @@ async function handleMessage(message) {
     return;
   }
 
-  if (text === "planfam" || text === "/planfam") {
-    await sendMessage(message.chat.id, "PlanFam is running.", {
+  if (text === "chat" || text === "/chat") {
+    await sendMessage(message.chat.id, "Chat dashboard. New website messages will appear here with Reply and Close buttons.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -188,8 +196,8 @@ async function handleMessage(message) {
 
   const directLoginText = text.startsWith("login ") ? rawText.slice(6) : null;
   const directRegisterText = text.startsWith("register ") ? rawText.slice(9) : null;
-  const pendingAction = await botUsers.getPendingAction(profile.telegramUserId);
-  const action = directLoginText ? "login" : directRegisterText ? "register" : pendingAction;
+  const pendingSession = await botUsers.getPendingSession(profile.telegramUserId);
+  const action = directLoginText ? "login" : directRegisterText ? "register" : pendingSession?.action;
 
   if (action === "login" || action === "register") {
     const credentials = parseCredentials(directLoginText || directRegisterText || rawText);
@@ -213,15 +221,70 @@ async function handleMessage(message) {
     return;
   }
 
+  if (action === "reply_chat") {
+    const result = await chat.addOwnerReply(pendingSession.conversation_id, rawText);
+    await botUsers.clearPendingAction(profile.telegramUserId);
+    await sendMessage(message.chat.id, result.message, {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
   await sendMessage(message.chat.id, "Choose an option.", {
     reply_markup: menuMarkup(currentUser),
   });
 }
 
+async function handleCallbackQuery(callbackQuery) {
+  const data = String(callbackQuery?.data || "");
+  const telegramUserId = callbackQuery?.from?.id;
+  const chatId = callbackQuery?.message?.chat?.id || telegramUserId;
+
+  if (!data.startsWith("chat:") || !telegramUserId) return;
+
+  const currentUser = await botUsers.getCurrentUser(telegramUserId);
+  if (currentUser?.role !== "owner") {
+    await answerCallbackQuery(callbackQuery.id, "Owner login required.");
+    await sendMessage(chatId, "Login with the owner account to manage chats.", {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  const [, action, conversationIdText] = data.split(":");
+  const conversationId = Number(conversationIdText);
+
+  if (!Number.isInteger(conversationId) || conversationId <= 0) {
+    await answerCallbackQuery(callbackQuery.id, "Invalid chat.");
+    return;
+  }
+
+  if (action === "reply") {
+    await botUsers.setPendingAction(telegramUserId, "reply_chat", conversationId);
+    await answerCallbackQuery(callbackQuery.id, `Replying to chat #${conversationId}`);
+    await sendMessage(chatId, `Send your reply for chat #${conversationId}.`, {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  if (action === "close") {
+    const result = await chat.closeConversation(conversationId);
+    await answerCallbackQuery(callbackQuery.id, result.message);
+    await sendMessage(chatId, result.message, {
+      reply_markup: menuMarkup(currentUser),
+    });
+  }
+}
+
 async function handleUpdate(update) {
   try {
     lastUpdateId = Math.max(lastUpdateId, update?.update_id || 0);
-    await handleMessage(update?.message);
+    if (update?.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+    } else {
+      await handleMessage(update?.message);
+    }
     lastError = null;
   } catch (error) {
     lastError = error.message;
@@ -233,7 +296,7 @@ async function pollOnce() {
   const updates = await telegram("getUpdates", {
     offset: lastUpdateId + 1,
     timeout: 25,
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
   });
 
   for (const update of updates) {
@@ -283,7 +346,7 @@ async function setWebhook(url, options = {}) {
 
   const payload = {
     url,
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
     drop_pending_updates: Boolean(options.dropPendingUpdates),
   };
 

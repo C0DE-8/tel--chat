@@ -1,13 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tel Chat Widget Test</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      color: #18212f;
+      display: grid;
+      place-items: center;
+    }
+
+    main {
+      width: min(720px, calc(100% - 32px));
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+    }
+
+    p {
+      margin: 0;
+      color: #526070;
+      line-height: 1.6;
+    }
+  </style>
 </head>
 <body>
-    <h1>
-        test chat from users end 
-    </h1>
+  <main>
+    <h1>Tel Chat Widget Test</h1>
+    <p>Use the chat button in the bottom-right corner to send a test message to the Telegram bot.</p>
+  </main>
+
+  <script src="/widget.js" data-public-key="habibi"></script>
 </body>
 </html>

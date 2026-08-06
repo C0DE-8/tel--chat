@@ -12,21 +12,26 @@ function telegramProfile(message) {
   };
 }
 
-async function setPendingAction(telegramUserId, action) {
+async function setPendingAction(telegramUserId, action, conversationId = null) {
   await db.execute(
-    `INSERT INTO bot_user_sessions (telegram_user_id, action)
-     VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE action = VALUES(action)`,
-    [telegramUserId, action]
+    `INSERT INTO bot_user_sessions (telegram_user_id, action, conversation_id)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE action = VALUES(action), conversation_id = VALUES(conversation_id)`,
+    [telegramUserId, action, conversationId]
   );
 }
 
-async function getPendingAction(telegramUserId) {
-  const rows = await db.query("SELECT action FROM bot_user_sessions WHERE telegram_user_id = ? LIMIT 1", [
+async function getPendingSession(telegramUserId) {
+  const rows = await db.query("SELECT action, conversation_id FROM bot_user_sessions WHERE telegram_user_id = ? LIMIT 1", [
     telegramUserId,
   ]);
 
-  return rows[0]?.action || null;
+  return rows[0] || null;
+}
+
+async function getPendingAction(telegramUserId) {
+  const session = await getPendingSession(telegramUserId);
+  return session?.action || null;
 }
 
 async function clearPendingAction(telegramUserId) {
@@ -95,6 +100,11 @@ async function loginUser({ username, password, profile }) {
     [profile.telegramUserId, profile.firstName, profile.lastName, profile.telegramUsername, user.id]
   );
 
+  await db.execute("UPDATE chat_owners SET telegram_chat_id = ? WHERE username = ?", [
+    String(profile.telegramUserId),
+    username,
+  ]);
+
   return { ok: true, user: { ...user, telegram_user_id: profile.telegramUserId }, message: `Logged in as ${username}.` };
 }
 
@@ -105,6 +115,7 @@ async function logoutUser(telegramUserId) {
   }
 
   await db.execute("UPDATE bot_users SET telegram_user_id = NULL WHERE id = ?", [user.id]);
+  await db.execute("UPDATE chat_owners SET telegram_chat_id = NULL WHERE username = ?", [user.username]);
   await clearPendingAction(telegramUserId);
 
   return { ok: true, message: "Logged out." };
@@ -130,6 +141,7 @@ module.exports = {
   clearPendingAction,
   getCurrentUser,
   getPendingAction,
+  getPendingSession,
   listUsersForOwner,
   loginUser,
   logoutUser,

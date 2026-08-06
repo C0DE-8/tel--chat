@@ -9,7 +9,7 @@
     "migrate": "node scripts/run-sql-folder.js migrations bot_migrations",
     "seed": "node scripts/run-sql-folder.js seeds bot_seeds",
     "setup:db": "npm run migrate && npm run seed",
-    "check": "node --check server.js && node --check routes/index.js && node --check routes/root.routes.js && node --check routes/health.routes.js && node --check routes/bot.routes.js && node --check routes/telegram.routes.js && node --check services/db.js && node --check services/diamond-sql.js && node --check services/bot-users.js && node --check services/bot.js && node --check scripts/run-sql-folder.js"
+    "check": "node --check server.js && node --check routes/index.js && node --check routes/root.routes.js && node --check routes/health.routes.js && node --check routes/bot.routes.js && node --check routes/telegram.routes.js && node --check routes/widget.routes.js && node --check services/db.js && node --check services/diamond-sql.js && node --check services/bot-users.js && node --check services/chat.js && node --check services/bot.js && node --check scripts/run-sql-folder.js"
   },
   "keywords": [],
   "author": "",
