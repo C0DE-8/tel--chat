@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS bot_users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  telegram_user_id BIGINT NULL UNIQUE,
+  username VARCHAR(191) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(32) NOT NULL DEFAULT 'user',
+  first_name VARCHAR(191) NULL,
+  last_name VARCHAR(191) NULL,
+  telegram_username VARCHAR(191) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP NULL,
+  INDEX idx_bot_users_role (role)
+)

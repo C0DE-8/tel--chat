@@ -1,3 +1,5 @@
+const botUsers = require("./bot-users");
+
 const telegramApiBase = () => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
 let isRunning = false;
@@ -8,13 +10,44 @@ let lastError = null;
 let webhookUrl = null;
 
 const PLANFAM_BUTTON_TEXT = "PlanFam";
+const LOGIN_BUTTON_TEXT = "Login";
+const REGISTER_BUTTON_TEXT = "Register";
+const USERS_BUTTON_TEXT = "Users";
 
 function mainMenuMarkup() {
   return {
-    keyboard: [[{ text: PLANFAM_BUTTON_TEXT }]],
+    keyboard: [
+      [{ text: LOGIN_BUTTON_TEXT }, { text: REGISTER_BUTTON_TEXT }],
+      [{ text: PLANFAM_BUTTON_TEXT }, { text: USERS_BUTTON_TEXT }],
+    ],
     resize_keyboard: true,
     one_time_keyboard: false,
   };
+}
+
+function parseCredentials(text) {
+  const parts = String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length < 2) return null;
+
+  return {
+    username: parts[0],
+    password: parts.slice(1).join(" "),
+  };
+}
+
+function formatUsers(users) {
+  if (!users.length) return "No users yet.";
+
+  return users
+    .map((user) => {
+      const telegramName = user.telegram_username ? `@${user.telegram_username}` : "no Telegram username";
+      return `${user.id}. ${user.username} (${user.role}) - ${telegramName}`;
+    })
+    .join("\n");
 }
 
 function isConfigured() {
@@ -47,7 +80,40 @@ async function sendMessage(chatId, text, options = {}) {
 async function handleMessage(message) {
   if (!message?.chat?.id) return;
 
-  const text = String(message.text || "").trim().toLowerCase();
+  const rawText = String(message.text || "").trim();
+  const text = rawText.toLowerCase();
+  const profile = botUsers.telegramProfile(message);
+
+  if (!rawText || text === "/start") {
+    await sendMessage(message.chat.id, "Choose an option.", {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
+
+  if (text === LOGIN_BUTTON_TEXT.toLowerCase()) {
+    await botUsers.setPendingAction(profile.telegramUserId, "login");
+    await sendMessage(message.chat.id, "Send your username and password like: habibi 123456", {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
+
+  if (text === REGISTER_BUTTON_TEXT.toLowerCase()) {
+    await botUsers.setPendingAction(profile.telegramUserId, "register");
+    await sendMessage(message.chat.id, "Send a username and password like: sam 123456", {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
+
+  if (text === USERS_BUTTON_TEXT.toLowerCase()) {
+    const result = await botUsers.listUsersForOwner(profile.telegramUserId);
+    await sendMessage(message.chat.id, result.ok ? formatUsers(result.users) : result.message, {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
 
   if (text === "planfam" || text === "/planfam") {
     await sendMessage(message.chat.id, "PlanFam is running.", {
@@ -56,7 +122,34 @@ async function handleMessage(message) {
     return;
   }
 
-  await sendMessage(message.chat.id, "botting is runing", {
+  const directLoginText = text.startsWith("login ") ? rawText.slice(6) : null;
+  const directRegisterText = text.startsWith("register ") ? rawText.slice(9) : null;
+  const pendingAction = await botUsers.getPendingAction(profile.telegramUserId);
+  const action = directLoginText ? "login" : directRegisterText ? "register" : pendingAction;
+
+  if (action === "login" || action === "register") {
+    const credentials = parseCredentials(directLoginText || directRegisterText || rawText);
+
+    if (!credentials) {
+      await sendMessage(message.chat.id, "Send it like: username password", {
+        reply_markup: mainMenuMarkup(),
+      });
+      return;
+    }
+
+    const result =
+      action === "login"
+        ? await botUsers.loginUser({ ...credentials, profile })
+        : await botUsers.registerUser({ ...credentials, profile });
+
+    await botUsers.clearPendingAction(profile.telegramUserId);
+    await sendMessage(message.chat.id, result.message, {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
+
+  await sendMessage(message.chat.id, "Choose an option.", {
     reply_markup: mainMenuMarkup(),
   });
 }
