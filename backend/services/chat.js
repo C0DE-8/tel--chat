@@ -27,13 +27,17 @@ function publicMessage(row) {
 }
 
 async function getOwnerByPublicKey(publicKey) {
-  const rows = await db.query("SELECT * FROM chat_owners WHERE public_key = ? LIMIT 1", [publicKey]);
+  const rows = await db.query("SELECT * FROM chat_owners WHERE public_key = ? ORDER BY id ASC LIMIT 1", [publicKey]);
   return rows[0] || null;
+}
+
+async function getOwnersByPublicKey(publicKey) {
+  return db.query("SELECT * FROM chat_owners WHERE public_key = ? ORDER BY id ASC", [publicKey]);
 }
 
 async function getConversationById(conversationId) {
   const rows = await db.query(
-    `SELECT c.*, o.username AS owner_username, o.telegram_chat_id
+    `SELECT c.*, o.username AS owner_username, o.public_key, o.telegram_chat_id
      FROM chat_conversations c
      JOIN chat_owners o ON o.id = c.owner_id
      WHERE c.id = ?
@@ -45,7 +49,7 @@ async function getConversationById(conversationId) {
 
 async function getConversationByToken(visitorToken) {
   const rows = await db.query(
-    `SELECT c.*, o.username AS owner_username, o.telegram_chat_id
+    `SELECT c.*, o.username AS owner_username, o.public_key, o.telegram_chat_id
      FROM chat_conversations c
      JOIN chat_owners o ON o.id = c.owner_id
      WHERE c.visitor_token = ?
@@ -61,21 +65,22 @@ async function canManageConversation(telegramUserId, conversationId) {
     `SELECT c.id
      FROM chat_conversations c
      JOIN chat_owners o ON o.id = c.owner_id
+     LEFT JOIN chat_owners mine ON mine.telegram_chat_id = ?
      JOIN bot_users u ON u.telegram_user_id = ?
      WHERE c.id = ?
-       AND (u.role = 'owner' OR o.telegram_chat_id = ?)
+       AND (u.role = 'owner' OR mine.public_key = o.public_key)
      LIMIT 1`,
-    [chatId, conversationId, chatId]
+    [chatId, chatId, conversationId]
   );
 
   return Boolean(rows[0]);
 }
 
-async function findLatestOpenConversation({ ownerId, visitorName, visitorEmail }) {
+async function findLatestOpenConversation({ publicKey, visitorName, visitorEmail }) {
   const name = String(visitorName || "").trim().toLowerCase();
   const email = String(visitorEmail || "").trim().toLowerCase();
   const matches = [];
-  const params = [ownerId];
+  const params = [publicKey];
 
   if (email) {
     matches.push("LOWER(visitor_email) = ?");
@@ -90,10 +95,10 @@ async function findLatestOpenConversation({ ownerId, visitorName, visitorEmail }
   if (!matches.length) return null;
 
   const rows = await db.query(
-    `SELECT c.*, o.username AS owner_username, o.telegram_chat_id
+    `SELECT c.*, o.username AS owner_username, o.public_key, o.telegram_chat_id
      FROM chat_conversations c
      JOIN chat_owners o ON o.id = c.owner_id
-     WHERE c.owner_id = ?
+     WHERE o.public_key = ?
        AND c.status = 'open'
        AND (${matches.join(" OR ")})
      ORDER BY c.created_at DESC, c.id DESC
@@ -113,7 +118,7 @@ async function createConversation({ publicKey, visitorName, visitorEmail, chatRe
   }
 
   const existingConversation = await findLatestOpenConversation({
-    ownerId: owner.id,
+    publicKey,
     visitorName,
     visitorEmail,
   });
@@ -259,7 +264,10 @@ async function rateConversation(visitorToken, rating) {
 }
 
 async function notifyOwner(conversation, message) {
-  if (!conversation.telegram_chat_id) {
+  const owners = await getOwnersByPublicKey(conversation.public_key);
+  const linkedOwners = owners.filter((owner) => owner.telegram_chat_id);
+
+  if (!linkedOwners.length) {
     await db.execute(
       "INSERT INTO chat_logs (level, event, owner_id, conversation_id, meta) VALUES (?, ?, ?, ?, ?)",
       [
@@ -277,20 +285,22 @@ async function notifyOwner(conversation, message) {
   const reasonLine = conversation.chat_reason ? `\nReason: ${conversation.chat_reason}` : "";
   const bodyLine = conversation.chat_reason === message.body ? "" : `\n\n${message.body}`;
 
-  await bot.sendMessage(
-    conversation.telegram_chat_id,
-    `Chat #${conversation.id}\n${conversation.visitor_name}${reasonLine}${bodyLine}`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "Reply", callback_data: `chat:reply:${conversation.id}` },
-            { text: "Close", callback_data: `chat:close:${conversation.id}` },
+  for (const owner of linkedOwners) {
+    await bot.sendMessage(
+      owner.telegram_chat_id,
+      `Chat #${conversation.id}\n${conversation.visitor_name}${reasonLine}${bodyLine}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "Reply", callback_data: `chat:reply:${conversation.id}` },
+              { text: "Close", callback_data: `chat:close:${conversation.id}` },
+            ],
           ],
-        ],
-      },
-    }
-  );
+        },
+      }
+    );
+  }
 }
 
 module.exports = {

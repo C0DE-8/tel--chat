@@ -80,6 +80,28 @@ function formatUsers(users) {
     .join("\n\n");
 }
 
+function formatUser(user) {
+  const telegramName = user.telegram_username ? `@${user.telegram_username}` : "no Telegram username";
+  const publicKey = user.public_key || "missing";
+  const linked = user.telegram_chat_id ? "linked" : "not linked";
+  return `${user.id}. ${user.username} (${user.role})\nTelegram: ${telegramName} (${linked})\nWidget key: ${publicKey}`;
+}
+
+function userActionMarkup(user) {
+  const rows = [
+    [
+      { text: "Set key", callback_data: `user:setkey:${user.id}` },
+      { text: "Add missing key", callback_data: `user:addkey:${user.id}` },
+    ],
+  ];
+
+  if (user.role !== "owner") {
+    rows.push([{ text: "Delete user", callback_data: `user:delete:${user.id}` }]);
+  }
+
+  return { inline_keyboard: rows };
+}
+
 function chatActionMarkup(conversationId) {
   return {
     inline_keyboard: [
@@ -89,6 +111,26 @@ function chatActionMarkup(conversationId) {
       ],
     ],
   };
+}
+
+async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
+  const result = await botUsers.listUsersForOwner(telegramUserId);
+  if (!result.ok) {
+    await sendMessage(chatId, result.message, {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  await sendMessage(chatId, result.users.length ? "Manage users below." : "No users yet.", {
+    reply_markup: menuMarkup(currentUser),
+  });
+
+  for (const user of result.users) {
+    await sendMessage(chatId, formatUser(user), {
+      reply_markup: userActionMarkup(user),
+    });
+  }
 }
 
 function isConfigured() {
@@ -185,10 +227,7 @@ async function handleMessage(message) {
   }
 
   if (text === USERS_BUTTON_TEXT.toLowerCase()) {
-    const result = await botUsers.listUsersForOwner(profile.telegramUserId);
-    await sendMessage(message.chat.id, result.ok ? formatUsers(result.users) : result.message, {
-      reply_markup: menuMarkup(currentUser),
-    });
+    await sendUsersDashboard(message.chat.id, profile.telegramUserId, currentUser);
     return;
   }
 
@@ -245,6 +284,19 @@ async function handleMessage(message) {
     return;
   }
 
+  if (action === "set_user_key") {
+    const result = await botUsers.setUserPublicKey({
+      adminTelegramUserId: profile.telegramUserId,
+      userId: pendingSession.conversation_id,
+      publicKey: rawText,
+    });
+    await botUsers.clearPendingAction(profile.telegramUserId);
+    await sendMessage(message.chat.id, result.message, {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
   await sendMessage(message.chat.id, "Choose an option.", {
     reply_markup: menuMarkup(currentUser),
   });
@@ -255,7 +307,7 @@ async function handleCallbackQuery(callbackQuery) {
   const telegramUserId = callbackQuery?.from?.id;
   const chatId = callbackQuery?.message?.chat?.id || telegramUserId;
 
-  if (!data.startsWith("chat:") || !telegramUserId) return;
+  if ((!data.startsWith("chat:") && !data.startsWith("user:")) || !telegramUserId) return;
 
   const currentUser = await botUsers.getCurrentUser(telegramUserId);
   if (!currentUser) {
@@ -263,6 +315,50 @@ async function handleCallbackQuery(callbackQuery) {
     await sendMessage(chatId, "Login to manage chats.", {
       reply_markup: menuMarkup(currentUser),
     });
+    return;
+  }
+
+  if (data.startsWith("user:")) {
+    if (currentUser.role !== "owner") {
+      await answerCallbackQuery(callbackQuery.id, "Owner login required.");
+      return;
+    }
+
+    const [, action, userIdText] = data.split(":");
+    const userId = Number(userIdText);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      await answerCallbackQuery(callbackQuery.id, "Invalid user.");
+      return;
+    }
+
+    if (action === "setkey") {
+      await botUsers.setPendingAction(telegramUserId, "set_user_key", userId);
+      await answerCallbackQuery(callbackQuery.id, "Send the widget key.");
+      await sendMessage(chatId, "Send the widget key to assign. You can reuse an existing key for multiple users.", {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    if (action === "addkey") {
+      const result = await botUsers.addMissingPublicKey({ adminTelegramUserId: telegramUserId, userId });
+      await answerCallbackQuery(callbackQuery.id, result.message);
+      await sendMessage(chatId, result.message, {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    if (action === "delete") {
+      const result = await botUsers.deleteUser({ adminTelegramUserId: telegramUserId, userId });
+      await answerCallbackQuery(callbackQuery.id, result.message);
+      await sendMessage(chatId, result.message, {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    await answerCallbackQuery(callbackQuery.id, "Unknown user action.");
     return;
   }
 

@@ -38,6 +38,11 @@ async function clearPendingAction(telegramUserId) {
   await db.execute("DELETE FROM bot_user_sessions WHERE telegram_user_id = ?", [telegramUserId]);
 }
 
+async function requireOwner(telegramUserId) {
+  const owner = await findByTelegramUserId(telegramUserId);
+  return Boolean(owner && owner.role === "owner");
+}
+
 async function findByUsername(username) {
   const rows = await db.query("SELECT * FROM bot_users WHERE username = ? LIMIT 1", [username]);
   return rows[0] || null;
@@ -48,12 +53,21 @@ async function findByTelegramUserId(telegramUserId) {
   return rows[0] || null;
 }
 
+async function findById(userId) {
+  const rows = await db.query("SELECT * FROM bot_users WHERE id = ? LIMIT 1", [userId]);
+  return rows[0] || null;
+}
+
 async function getCurrentUser(telegramUserId) {
   return findByTelegramUserId(telegramUserId);
 }
 
 function publicKeyForUsername(username) {
-  return String(username || "")
+  return normalizePublicKey(username);
+}
+
+function normalizePublicKey(value) {
+  return String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-")
@@ -81,6 +95,92 @@ async function ensureChatOwner({ username, passwordHash, role, telegramUserId })
   );
 
   return publicKey;
+}
+
+async function setUserPublicKey({ adminTelegramUserId, userId, publicKey }) {
+  if (!(await requireOwner(adminTelegramUserId))) {
+    return { ok: false, message: "Only the owner can manage users." };
+  }
+
+  const user = await findById(userId);
+  if (!user) {
+    return { ok: false, message: "User not found." };
+  }
+
+  const normalizedKey = normalizePublicKey(publicKey);
+  if (!normalizedKey) {
+    return { ok: false, message: "Send a valid widget key." };
+  }
+
+  await db.execute(
+    `INSERT INTO chat_owners (username, password_hash, public_key, role, telegram_chat_id)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       password_hash = VALUES(password_hash),
+       public_key = VALUES(public_key),
+       role = VALUES(role)`,
+    [
+      user.username,
+      user.password_hash,
+      normalizedKey,
+      user.role === "owner" ? "admin" : "user",
+      user.telegram_user_id ? String(user.telegram_user_id) : null,
+    ]
+  );
+
+  return { ok: true, message: `${user.username} widget key is now: ${normalizedKey}` };
+}
+
+async function addMissingPublicKey({ adminTelegramUserId, userId }) {
+  if (!(await requireOwner(adminTelegramUserId))) {
+    return { ok: false, message: "Only the owner can manage users." };
+  }
+
+  const user = await findById(userId);
+  if (!user) {
+    return { ok: false, message: "User not found." };
+  }
+
+  const rows = await db.query("SELECT public_key FROM chat_owners WHERE username = ? LIMIT 1", [user.username]);
+  if (rows[0]?.public_key) {
+    return { ok: true, message: `${user.username} already has widget key: ${rows[0].public_key}` };
+  }
+
+  return setUserPublicKey({
+    adminTelegramUserId,
+    userId,
+    publicKey: publicKeyForUsername(user.username),
+  });
+}
+
+async function deleteUser({ adminTelegramUserId, userId }) {
+  if (!(await requireOwner(adminTelegramUserId))) {
+    return { ok: false, message: "Only the owner can delete users." };
+  }
+
+  const user = await findById(userId);
+  if (!user) {
+    return { ok: false, message: "User not found." };
+  }
+  if (user.role === "owner") {
+    return { ok: false, message: "The owner account cannot be deleted from Telegram." };
+  }
+
+  const ownerRows = await db.query("SELECT id FROM chat_owners WHERE username = ?", [user.username]);
+  for (const owner of ownerRows) {
+    const conversations = await db.query("SELECT id FROM chat_conversations WHERE owner_id = ?", [owner.id]);
+    for (const conversation of conversations) {
+      await db.execute("DELETE FROM chat_logs WHERE conversation_id = ?", [conversation.id]);
+      await db.execute("DELETE FROM chat_messages WHERE conversation_id = ?", [conversation.id]);
+    }
+    await db.execute("DELETE FROM chat_conversations WHERE owner_id = ?", [owner.id]);
+  }
+
+  await db.execute("DELETE FROM bot_user_sessions WHERE telegram_user_id = ?", [user.telegram_user_id]);
+  await db.execute("DELETE FROM chat_owners WHERE username = ?", [user.username]);
+  await db.execute("DELETE FROM bot_users WHERE id = ?", [user.id]);
+
+  return { ok: true, message: `${user.username} deleted.` };
 }
 
 async function registerUser({ username, password, profile }) {
@@ -195,6 +295,8 @@ async function listUsersForOwner(telegramUserId) {
 
 module.exports = {
   clearPendingAction,
+  addMissingPublicKey,
+  deleteUser,
   ensureChatOwner,
   getCurrentUser,
   getPendingAction,
@@ -202,6 +304,7 @@ module.exports = {
   listUsersForOwner,
   loginUser,
   logoutUser,
+  setUserPublicKey,
   registerUser,
   setPendingAction,
   telegramProfile,
