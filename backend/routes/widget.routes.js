@@ -71,4 +71,13 @@ router.post("/conversations/:visitorToken/close", async (req, res) => {
   }
 });
 
+router.post("/conversations/:visitorToken/rating", async (req, res) => {
+  try {
+    const conversation = await chat.rateConversation(req.params.visitorToken, req.body.rating);
+    res.json({ ok: true, conversation });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 module.exports = router;

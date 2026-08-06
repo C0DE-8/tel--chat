@@ -12,13 +12,19 @@
   let startFormEl;
   let chatFormEl;
   let closeButtonEl;
+  let sendButtonEl;
+  let sendTextEl;
+  let sendSpinnerEl;
   let minimizeButtonEl;
+  let ratingEl;
+  let ratingTextEl;
   let titleEl;
   let noticeEl;
   let statusEl;
   let statusTextEl;
   let closeButtonMode = "close";
   let isLoading = false;
+  let isSending = false;
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -51,6 +57,13 @@
     }
   }
 
+  function setSending(sending) {
+    isSending = sending;
+    if (sendButtonEl) sendButtonEl.disabled = sending;
+    if (sendTextEl) sendTextEl.textContent = sending ? "Sending" : "Send";
+    if (sendSpinnerEl) sendSpinnerEl.style.display = sending ? "inline-block" : "none";
+  }
+
   function renderSystem(text) {
     const startVisible = startFormEl?.style.display !== "none";
     if (noticeEl && startVisible) {
@@ -66,6 +79,7 @@
     startFormEl.style.display = "none";
     messagesEl.style.display = "flex";
     chatFormEl.style.display = "grid";
+    ratingEl.style.display = "none";
     closeButtonEl.style.display = "inline-block";
     closeButtonEl.textContent = "End chat";
     closeButtonMode = "close";
@@ -79,6 +93,7 @@
     messagesEl.style.display = "none";
     chatFormEl.style.display = "none";
     closeButtonEl.style.display = "none";
+    ratingEl.style.display = "none";
     titleEl.textContent = "Start a Chat";
   }
 
@@ -93,6 +108,24 @@
     window.localStorage.removeItem(storageKey);
     renderMessages([]);
     showStartMode();
+  }
+
+  function renderRating(conversation) {
+    if (conversation.status !== "closed") {
+      ratingEl.style.display = "none";
+      return;
+    }
+
+    ratingEl.style.display = "grid";
+    ratingTextEl.textContent = conversation.rating
+      ? `Thanks for rating this chat ${conversation.rating}/5.`
+      : "How was this chat?";
+
+    ratingEl.querySelectorAll(".tc-star").forEach((button) => {
+      const value = Number(button.dataset.rating);
+      button.classList.toggle("tc-selected", Boolean(conversation.rating && value <= conversation.rating));
+      button.disabled = Boolean(conversation.rating);
+    });
   }
 
   function renderMessages(messages) {
@@ -156,11 +189,13 @@
 
       if (payload.conversation.status === "closed") {
         inputEl.disabled = true;
-        inputEl.placeholder = "This chat is closed";
+        inputEl.placeholder = "Chat ended";
         closeButtonEl.textContent = "New chat";
         closeButtonMode = "new";
         closeButtonEl.style.display = "inline-block";
+        titleEl.textContent = "Chat ended";
       }
+      renderRating(payload.conversation);
     } finally {
       setLoading(false);
     }
@@ -168,10 +203,10 @@
 
   async function sendMessage() {
     const body = inputEl.value.trim();
-    if (!body || !visitorToken || isLoading) return;
+    if (!body || !visitorToken || isLoading || isSending) return;
 
     inputEl.value = "";
-    setLoading(true, "Sending...");
+    setSending(true);
     try {
       await api(`/widget/conversations/${visitorToken}/messages`, {
         method: "POST",
@@ -179,7 +214,7 @@
       });
       await loadMessages();
     } finally {
-      setLoading(false);
+      setSending(false);
     }
   }
 
@@ -196,6 +231,45 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  async function rateChat(rating) {
+    if (!visitorToken || isLoading) return;
+
+    setLoading(true, "Saving rating...");
+    try {
+      const payload = await api(`/widget/conversations/${visitorToken}/rating`, {
+        method: "POST",
+        body: JSON.stringify({ rating }),
+      });
+      renderRating(payload.conversation);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function buildRating() {
+    const wrapper = el("div", { class: "tc-rating" });
+    ratingTextEl = el("div", { class: "tc-rating-title", text: "How was this chat?" });
+    const stars = el("div", { class: "tc-stars" });
+
+    for (let rating = 1; rating <= 5; rating += 1) {
+      const button = el("button", {
+        class: "tc-star",
+        type: "button",
+        text: "★",
+        "data-rating": String(rating),
+        "aria-label": `Rate ${rating} out of 5`,
+      });
+      button.addEventListener("click", function () {
+        rateChat(rating).catch((error) => renderSystem(error.message));
+      });
+      stars.appendChild(button);
+    }
+
+    wrapper.appendChild(ratingTextEl);
+    wrapper.appendChild(stars);
+    return wrapper;
   }
 
   function buildStartForm() {
@@ -221,7 +295,7 @@
       text: `
         .tc-button{position:fixed!important;right:20px;bottom:20px;width:64px;height:64px;border:0;border-radius:50%;background:#0f172a;color:#fff;font:700 13px Arial,sans-serif;box-shadow:0 16px 40px rgba(0,0,0,.28);cursor:pointer;z-index:2147483646;display:flex;align-items:center;justify-content:center;transition:transform .18s ease,opacity .18s ease}
         .tc-button.tc-hidden{opacity:0;pointer-events:none;transform:translateY(10px) scale(.96)}
-        .tc-panel{position:fixed;right:20px;bottom:20px;width:min(380px,calc(100vw - 40px));height:560px;max-height:calc(100vh - 40px);display:none;grid-template-rows:auto auto minmax(0,1fr) auto;border:1px solid #d9e0ea;border-radius:8px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.24);overflow:hidden;z-index:2147483647;font-family:Arial,sans-serif}
+        .tc-panel{position:fixed;right:20px;bottom:20px;width:min(380px,calc(100vw - 40px));height:560px;max-height:calc(100vh - 40px);display:none;grid-template-rows:auto auto minmax(0,1fr) auto auto;border:1px solid #d9e0ea;border-radius:8px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.24);overflow:hidden;z-index:2147483647;font-family:Arial,sans-serif}
         .tc-panel.tc-open{display:grid}
         .tc-head{grid-row:1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 14px;background:#0f172a;color:#fff;font-weight:700}
         .tc-head-title{display:flex;align-items:center;gap:9px}
@@ -235,15 +309,24 @@
         .tc-message{max-width:82%;padding:9px 11px;border-radius:8px;font-size:14px;line-height:1.35;word-break:break-word}
         .tc-visitor{align-self:flex-end;background:#1d6ff2;color:#fff}
         .tc-owner,.tc-system{align-self:flex-start;background:#fff;color:#1f2937;border:1px solid #d9e0ea}
-        .tc-form{grid-row:4;display:none;grid-template-columns:minmax(0,1fr) 62px 82px;align-items:center;gap:8px;padding:10px;border-top:1px solid #d9e0ea;background:#fff}
+        .tc-rating{grid-row:4;display:none;gap:7px;padding:11px 14px;border-top:1px solid #d9e0ea;background:#fff}
+        .tc-rating-title{font-size:13px;font-weight:700;color:#334155}
+        .tc-stars{display:flex;gap:4px}
+        .tc-star{width:30px;height:30px;border:0;border-radius:6px;background:#f1f5f9;color:#94a3b8;font-size:18px;line-height:1;cursor:pointer}
+        .tc-star.tc-selected,.tc-star:hover{background:#fff7d6;color:#f59e0b}
+        .tc-star:disabled{cursor:default}
+        .tc-form{grid-row:5;display:none;grid-template-columns:minmax(0,1fr) 86px 82px;align-items:center;gap:8px;padding:10px;border-top:1px solid #d9e0ea;background:#fff}
         .tc-input,.tc-start input,.tc-start textarea{min-width:0;box-sizing:border-box;border:1px solid #c8d1de;border-radius:6px;padding:10px;font:14px Arial,sans-serif}
         .tc-input{height:40px}
         .tc-send,.tc-start button{height:40px;border:0;border-radius:6px;background:#0f172a;color:#fff;padding:0 14px;font-weight:700;white-space:nowrap;cursor:pointer}
+        .tc-send{display:flex;align-items:center;justify-content:center;gap:6px}
+        .tc-send:disabled{opacity:.76;cursor:wait}
+        .tc-send-spinner{display:none;width:12px;height:12px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:tc-spin .8s linear infinite}
         .tc-start{grid-row:3;min-height:0;overflow:auto;display:grid;align-content:start;gap:8px;padding:16px;background:#fff}
         .tc-start label{font-size:13px;font-weight:700;color:#334155}
         .tc-start button{height:40px;margin-top:4px}
         .tc-notice{display:none;border:1px solid #f2c4c4;background:#fff2f2;color:#8a1f1f;border-radius:6px;padding:9px 10px;font-size:13px;line-height:1.35}
-        @media (max-width:420px){.tc-panel{right:10px;bottom:10px;width:calc(100vw - 20px);height:calc(100vh - 20px);max-height:none}.tc-form{grid-template-columns:minmax(0,1fr) 56px 74px;gap:6px;padding:8px}.tc-send,.tc-close-chat{font-size:12px;padding:0 8px}}
+        @media (max-width:420px){.tc-panel{right:10px;bottom:10px;width:calc(100vw - 20px);height:calc(100vh - 20px);max-height:none}.tc-form{grid-template-columns:minmax(0,1fr) 78px 74px;gap:6px;padding:8px}.tc-send,.tc-close-chat{font-size:12px;padding:0 8px}}
       `,
     });
 
@@ -283,6 +366,9 @@
     messagesEl = el("div", { class: "tc-messages" });
     panel.appendChild(messagesEl);
 
+    ratingEl = buildRating();
+    panel.appendChild(ratingEl);
+
     chatFormEl = el("form", { class: "tc-form" });
     inputEl = el("input", {
       class: "tc-input",
@@ -291,7 +377,12 @@
       autocomplete: "off",
     });
     chatFormEl.appendChild(inputEl);
-    chatFormEl.appendChild(el("button", { class: "tc-send", type: "submit", text: "Send" }));
+    sendButtonEl = el("button", { class: "tc-send", type: "submit" });
+    sendSpinnerEl = el("span", { class: "tc-send-spinner" });
+    sendTextEl = el("span", { text: "Send" });
+    sendButtonEl.appendChild(sendSpinnerEl);
+    sendButtonEl.appendChild(sendTextEl);
+    chatFormEl.appendChild(sendButtonEl);
     chatFormEl.appendChild(closeButtonEl);
     chatFormEl.addEventListener("submit", function (event) {
       event.preventDefault();

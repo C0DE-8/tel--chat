@@ -9,6 +9,8 @@ function publicConversation(row) {
     chatReason: row.chat_reason,
     visitorToken: row.visitor_token,
     status: row.status,
+    rating: row.rating,
+    ratedAt: row.rated_at,
     createdAt: row.created_at,
     closedAt: row.closed_at,
   };
@@ -160,9 +162,39 @@ async function closeConversation(conversationId) {
   await db.execute("UPDATE chat_conversations SET status = 'closed', closed_at = NOW() WHERE id = ?", [
     conversation.id,
   ]);
-  await addMessage(conversation.id, "system", "Chat closed.");
+  await addMessage(conversation.id, "system", "Chat ended.");
 
-  return { ok: true, message: `Chat #${conversation.id} closed.` };
+  return { ok: true, message: `Chat #${conversation.id} ended.` };
+}
+
+async function rateConversation(visitorToken, rating) {
+  const conversation = await getConversationByToken(visitorToken);
+  if (!conversation) {
+    const error = new Error("Conversation not found");
+    error.status = 404;
+    throw error;
+  }
+
+  const normalizedRating = Number(rating);
+  if (!Number.isInteger(normalizedRating) || normalizedRating < 1 || normalizedRating > 5) {
+    const error = new Error("Rating must be between 1 and 5");
+    error.status = 400;
+    throw error;
+  }
+
+  if (conversation.status !== "closed") {
+    const error = new Error("Only ended chats can be rated");
+    error.status = 409;
+    throw error;
+  }
+
+  await db.execute("UPDATE chat_conversations SET rating = ?, rated_at = NOW() WHERE id = ?", [
+    normalizedRating,
+    conversation.id,
+  ]);
+
+  const updated = await getConversationById(conversation.id);
+  return publicConversation(updated);
 }
 
 async function notifyOwner(conversation, message) {
@@ -208,4 +240,5 @@ module.exports = {
   createConversation,
   getConversationById,
   listMessages,
+  rateConversation,
 };
