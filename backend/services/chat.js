@@ -409,7 +409,7 @@ async function notifyOwner(conversation, message) {
   for (const owner of linkedOwners) {
     const sent = await bot.sendMessage(
       owner.telegram_chat_id,
-      `Client: ${conversation.visitor_name}\nChat #${conversation.id}${reasonLine}${bodyLine}\n\nReply to this Telegram message to answer the client.`,
+      `Client: ${conversation.visitor_name}\nChat #${conversation.id}${reasonLine}${bodyLine}`,
       {
         reply_markup: {
           inline_keyboard: [
