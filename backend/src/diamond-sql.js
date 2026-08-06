@@ -13,12 +13,19 @@ async function postJson(url, body, headers, timeoutMs) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let response;
+
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (error) {
+      const causeCode = error.cause && error.cause.code ? ` (${error.cause.code})` : "";
+      throw new Error(`Cannot reach DBMS Gateway at ${url}${causeCode}. Start the gateway or update DBMS_URL.`);
+    }
 
     const text = await response.text();
     const data = text ? JSON.parse(text) : null;

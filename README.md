@@ -20,6 +20,13 @@ cd backend
 npm start
 ```
 
+The app starts from `backend/server.js`. Routes live in `backend/src/routes/`:
+
+- `health.js` handles `GET /health`
+- `config.js` handles `GET /api/config`
+- `conversations.js` handles visitor chat APIs
+- `widget.js` handles `GET /widget/:ownerKey.js`
+
 The backend creates these tables through the gateway on startup:
 
 - `chat_owners`

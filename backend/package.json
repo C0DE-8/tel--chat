@@ -2,11 +2,11 @@
   "name": "chat-app",
   "version": "1.0.0",
   "description": "Reusable Telegram-powered live chat backend using DBMS Gateway.",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/bot.js && node --check src/db.js && node --check src/schema.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "check": "node --check server.js && node --check src/app.js && node --check src/routes/health.js && node --check src/routes/config.js && node --check src/routes/conversations.js && node --check src/routes/widget.js && node --check src/bot.js && node --check src/db.js && node --check src/schema.js"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +16,10 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "helmet": "^8.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
