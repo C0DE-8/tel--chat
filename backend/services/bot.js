@@ -113,6 +113,21 @@ function chatActionMarkup(conversationId) {
   };
 }
 
+function formatOpenChat(conversation) {
+  const lines = [
+    `Chat #${conversation.id}`,
+    `Widget key: ${conversation.publicKey}`,
+    `Visitor: ${conversation.visitorName}`,
+  ];
+
+  if (conversation.visitorEmail) lines.push(`Email: ${conversation.visitorEmail}`);
+  if (conversation.chatReason) lines.push(`Reason: ${conversation.chatReason}`);
+  if (conversation.lastMessage) lines.push(`Last: ${conversation.lastMessage}`);
+
+  lines.push(`Messages: ${conversation.messageCount || 0}`);
+  return lines.join("\n");
+}
+
 async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
   const result = await botUsers.listUsersForOwner(telegramUserId);
   if (!result.ok) {
@@ -129,6 +144,33 @@ async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
   for (const user of result.users) {
     await sendMessage(chatId, formatUser(user), {
       reply_markup: userActionMarkup(user),
+    });
+  }
+}
+
+async function sendChatDashboard(chatId, telegramUserId, currentUser) {
+  if (!currentUser) {
+    await sendMessage(chatId, "Login or register first.", {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  const conversations = await chat.listOpenConversationsForUser(telegramUserId);
+  if (!conversations.length) {
+    await sendMessage(chatId, "No open chats yet. New website messages will appear here.", {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  await sendMessage(chatId, `Open chats: ${conversations.length}`, {
+    reply_markup: menuMarkup(currentUser),
+  });
+
+  for (const conversation of conversations) {
+    await sendMessage(chatId, formatOpenChat(conversation), {
+      reply_markup: chatActionMarkup(conversation.id),
     });
   }
 }
@@ -240,9 +282,7 @@ async function handleMessage(message) {
   }
 
   if (text === "chat" || text === "/chat") {
-    await sendMessage(message.chat.id, "Chat dashboard. New website messages will appear here with Reply and Close buttons.", {
-      reply_markup: menuMarkup(currentUser),
-    });
+    await sendChatDashboard(message.chat.id, profile.telegramUserId, currentUser);
     return;
   }
 
@@ -267,9 +307,13 @@ async function handleMessage(message) {
         : await botUsers.registerUser({ ...credentials, profile });
 
     await botUsers.clearPendingAction(profile.telegramUserId);
+    const resolvedUser = result.user || (result.ok ? await botUsers.getCurrentUser(profile.telegramUserId) : currentUser);
     await sendMessage(message.chat.id, result.message, {
-      reply_markup: menuMarkup(result.user || (result.ok ? await botUsers.getCurrentUser(profile.telegramUserId) : currentUser)),
+      reply_markup: menuMarkup(resolvedUser),
     });
+    if (result.ok) {
+      await sendChatDashboard(message.chat.id, profile.telegramUserId, resolvedUser);
+    }
     return;
   }
 

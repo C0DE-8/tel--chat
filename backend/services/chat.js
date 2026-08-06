@@ -26,6 +26,20 @@ function publicMessage(row) {
   };
 }
 
+function publicChatSummary(row) {
+  return {
+    id: row.id,
+    publicKey: row.public_key,
+    visitorName: row.visitor_name,
+    visitorEmail: row.visitor_email,
+    chatReason: row.chat_reason,
+    lastMessage: row.last_message,
+    lastMessageAt: row.last_message_at,
+    messageCount: row.message_count,
+    createdAt: row.created_at,
+  };
+}
+
 async function getOwnerByPublicKey(publicKey) {
   const rows = await db.query("SELECT * FROM chat_owners WHERE public_key = ? ORDER BY id ASC LIMIT 1", [publicKey]);
   return rows[0] || null;
@@ -107,6 +121,47 @@ async function findLatestOpenConversation({ publicKey, visitorName, visitorEmail
   );
 
   return rows[0] || null;
+}
+
+async function listOpenConversationsForUser(telegramUserId) {
+  const chatId = String(telegramUserId);
+  const rows = await db.query(
+    `SELECT
+       c.id,
+       o.public_key,
+       c.visitor_name,
+       c.visitor_email,
+       c.chat_reason,
+       c.created_at,
+       COUNT(m.id) AS message_count,
+       (
+         SELECT cm.body
+         FROM chat_messages cm
+         WHERE cm.conversation_id = c.id
+         ORDER BY cm.created_at DESC, cm.id DESC
+         LIMIT 1
+       ) AS last_message,
+       (
+         SELECT cm.created_at
+         FROM chat_messages cm
+         WHERE cm.conversation_id = c.id
+         ORDER BY cm.created_at DESC, cm.id DESC
+         LIMIT 1
+       ) AS last_message_at
+     FROM chat_conversations c
+     JOIN chat_owners o ON o.id = c.owner_id
+     JOIN bot_users u ON u.telegram_user_id = ?
+     LEFT JOIN chat_owners mine ON mine.telegram_chat_id = ?
+     LEFT JOIN chat_messages m ON m.conversation_id = c.id
+     WHERE c.status = 'open'
+       AND (u.role = 'owner' OR mine.public_key = o.public_key)
+     GROUP BY c.id, o.public_key, c.visitor_name, c.visitor_email, c.chat_reason, c.created_at
+     ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC
+     LIMIT 20`,
+    [chatId, chatId]
+  );
+
+  return rows.map(publicChatSummary);
 }
 
 async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
@@ -311,6 +366,7 @@ module.exports = {
   closeConversation,
   createConversation,
   getConversationById,
+  listOpenConversationsForUser,
   listMessages,
   rateConversation,
 };
