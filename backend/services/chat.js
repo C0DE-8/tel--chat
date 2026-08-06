@@ -173,7 +173,8 @@ async function listConversationsForUser(telegramUserId) {
      JOIN bot_users u ON u.telegram_user_id = ?
      LEFT JOIN chat_owners mine ON mine.telegram_chat_id = ?
      LEFT JOIN chat_messages m ON m.conversation_id = c.id
-     WHERE u.role = 'owner' OR mine.public_key = o.public_key
+     WHERE c.status = 'open'
+       AND (u.role = 'owner' OR mine.public_key = o.public_key)
      GROUP BY c.id, o.public_key, o.username, c.visitor_name, c.visitor_email, c.chat_reason, c.status, c.rating, c.rated_at, c.created_at, c.closed_at
      ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC
      LIMIT 20`,

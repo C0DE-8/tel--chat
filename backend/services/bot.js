@@ -263,7 +263,7 @@ async function sendChatDashboard(chatId, telegramUserId, currentUser, introText 
 
   if (!conversations.length) {
     items.push({
-      text: "No saved chats in the database. If chats were cleared, older Telegram cards are only message history. New website chats will appear here.",
+      text: "No open chats. New website chats will appear here.",
       options: { reply_markup: menuMarkup(currentUser) },
     });
     await sendUiMessages(chatId, telegramUserId, items);
