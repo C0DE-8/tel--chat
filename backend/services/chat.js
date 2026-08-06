@@ -6,6 +6,7 @@ function publicConversation(row) {
     id: row.id,
     visitorName: row.visitor_name,
     visitorEmail: row.visitor_email,
+    chatReason: row.chat_reason,
     visitorToken: row.visitor_token,
     status: row.status,
     createdAt: row.created_at,
@@ -52,7 +53,7 @@ async function getConversationByToken(visitorToken) {
   return rows[0] || null;
 }
 
-async function createConversation({ publicKey, visitorName, visitorEmail }) {
+async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
   const owner = await getOwnerByPublicKey(publicKey);
   if (!owner) {
     const error = new Error("Invalid widget key");
@@ -62,9 +63,9 @@ async function createConversation({ publicKey, visitorName, visitorEmail }) {
 
   const token = crypto.randomUUID();
   const result = await db.execute(
-    `INSERT INTO chat_conversations (owner_id, visitor_name, visitor_email, visitor_token)
-     VALUES (?, ?, ?, ?)`,
-    [owner.id, visitorName || "Visitor", visitorEmail || "", token]
+    `INSERT INTO chat_conversations (owner_id, visitor_name, visitor_email, chat_reason, visitor_token)
+     VALUES (?, ?, ?, ?, ?)`,
+    [owner.id, visitorName || "Visitor", visitorEmail || "", chatReason || null, token]
   );
 
   const conversation = await getConversationById(result.insertId);
@@ -164,9 +165,12 @@ async function notifyOwner(conversation, message) {
   }
 
   const bot = require("./bot");
+  const reasonLine = conversation.chat_reason ? `\nReason: ${conversation.chat_reason}` : "";
+  const bodyLine = conversation.chat_reason === message.body ? "" : `\n\n${message.body}`;
+
   await bot.sendMessage(
     conversation.telegram_chat_id,
-    `Chat #${conversation.id}\n${conversation.visitor_name}: ${message.body}`,
+    `Chat #${conversation.id}\n${conversation.visitor_name}${reasonLine}${bodyLine}`,
     {
       reply_markup: {
         inline_keyboard: [

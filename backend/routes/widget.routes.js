@@ -19,13 +19,20 @@ router.get("/config", (req, res) => {
 
 router.post("/conversations", async (req, res) => {
   try {
+    const chatReason = String(req.body.chatReason || "").trim();
     const conversation = await chat.createConversation({
       publicKey: req.body.publicKey,
       visitorName: req.body.visitorName,
       visitorEmail: req.body.visitorEmail,
+      chatReason,
     });
 
-    res.status(201).json({ ok: true, conversation });
+    let message = null;
+    if (chatReason) {
+      message = await chat.addVisitorMessage(conversation.visitorToken, chatReason);
+    }
+
+    res.status(201).json({ ok: true, conversation, message });
   } catch (error) {
     sendError(res, error);
   }

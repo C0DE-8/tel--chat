@@ -52,6 +52,37 @@ async function getCurrentUser(telegramUserId) {
   return findByTelegramUserId(telegramUserId);
 }
 
+function publicKeyForUsername(username) {
+  return String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function ensureChatOwner({ username, passwordHash, role, telegramUserId }) {
+  const publicKey = publicKeyForUsername(username);
+  const ownerRole = role === "owner" ? "admin" : "user";
+  const chatId = String(telegramUserId);
+
+  await db.execute("UPDATE chat_owners SET telegram_chat_id = NULL WHERE telegram_chat_id = ? AND username <> ?", [
+    chatId,
+    username,
+  ]);
+
+  await db.execute(
+    `INSERT INTO chat_owners (username, password_hash, public_key, role, telegram_chat_id)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       password_hash = VALUES(password_hash),
+       role = VALUES(role),
+       telegram_chat_id = VALUES(telegram_chat_id)`,
+    [username, passwordHash, publicKey, ownerRole, chatId]
+  );
+
+  return publicKey;
+}
+
 async function registerUser({ username, password, profile }) {
   const linkedUser = await findByTelegramUserId(profile.telegramUserId);
   if (linkedUser) {
@@ -79,7 +110,14 @@ async function registerUser({ username, password, profile }) {
     ]
   );
 
-  return { ok: true, message: `Registered and logged in as ${username}.` };
+  const publicKey = await ensureChatOwner({
+    username,
+    passwordHash,
+    role: "user",
+    telegramUserId: profile.telegramUserId,
+  });
+
+  return { ok: true, publicKey, message: `Registered and logged in as ${username}. Widget key: ${publicKey}` };
 }
 
 async function loginUser({ username, password, profile }) {
@@ -100,12 +138,19 @@ async function loginUser({ username, password, profile }) {
     [profile.telegramUserId, profile.firstName, profile.lastName, profile.telegramUsername, user.id]
   );
 
-  await db.execute("UPDATE chat_owners SET telegram_chat_id = ? WHERE username = ?", [
-    String(profile.telegramUserId),
+  const publicKey = await ensureChatOwner({
     username,
-  ]);
+    passwordHash: user.password_hash,
+    role: user.role,
+    telegramUserId: profile.telegramUserId,
+  });
 
-  return { ok: true, user: { ...user, telegram_user_id: profile.telegramUserId }, message: `Logged in as ${username}.` };
+  return {
+    ok: true,
+    user: { ...user, telegram_user_id: profile.telegramUserId },
+    publicKey,
+    message: `Logged in as ${username}. Widget key: ${publicKey}`,
+  };
 }
 
 async function logoutUser(telegramUserId) {
@@ -139,6 +184,7 @@ async function listUsersForOwner(telegramUserId) {
 
 module.exports = {
   clearPendingAction,
+  ensureChatOwner,
   getCurrentUser,
   getPendingAction,
   getPendingSession,
