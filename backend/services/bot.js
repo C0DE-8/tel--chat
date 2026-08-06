@@ -13,12 +13,39 @@ const PLANFAM_BUTTON_TEXT = "PlanFam";
 const LOGIN_BUTTON_TEXT = "Login";
 const REGISTER_BUTTON_TEXT = "Register";
 const USERS_BUTTON_TEXT = "Users";
+const ADMIN_DASHBOARD_BUTTON_TEXT = "Admin Dashboard";
+const USER_DASHBOARD_BUTTON_TEXT = "Dashboard";
+const LOGOUT_BUTTON_TEXT = "Logout";
 
-function mainMenuMarkup() {
+function menuMarkup(user) {
+  if (user?.role === "owner") {
+    return {
+      keyboard: [
+        [{ text: ADMIN_DASHBOARD_BUTTON_TEXT }],
+        [{ text: USERS_BUTTON_TEXT }, { text: PLANFAM_BUTTON_TEXT }],
+        [{ text: LOGOUT_BUTTON_TEXT }],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false,
+    };
+  }
+
+  if (user) {
+    return {
+      keyboard: [
+        [{ text: USER_DASHBOARD_BUTTON_TEXT }],
+        [{ text: PLANFAM_BUTTON_TEXT }],
+        [{ text: LOGOUT_BUTTON_TEXT }],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false,
+    };
+  }
+
   return {
     keyboard: [
       [{ text: LOGIN_BUTTON_TEXT }, { text: REGISTER_BUTTON_TEXT }],
-      [{ text: PLANFAM_BUTTON_TEXT }, { text: USERS_BUTTON_TEXT }],
+      [{ text: PLANFAM_BUTTON_TEXT }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
@@ -83,26 +110,55 @@ async function handleMessage(message) {
   const rawText = String(message.text || "").trim();
   const text = rawText.toLowerCase();
   const profile = botUsers.telegramProfile(message);
+  const currentUser = await botUsers.getCurrentUser(profile.telegramUserId);
 
   if (!rawText || text === "/start") {
     await sendMessage(message.chat.id, "Choose an option.", {
-      reply_markup: mainMenuMarkup(),
+      reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
   if (text === LOGIN_BUTTON_TEXT.toLowerCase()) {
     await botUsers.setPendingAction(profile.telegramUserId, "login");
-    await sendMessage(message.chat.id, "Send your username and password like: habibi 123456", {
-      reply_markup: mainMenuMarkup(),
+    await sendMessage(message.chat.id, "Send your username and password like: username password", {
+      reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
   if (text === REGISTER_BUTTON_TEXT.toLowerCase()) {
     await botUsers.setPendingAction(profile.telegramUserId, "register");
-    await sendMessage(message.chat.id, "Send a username and password like: sam 123456", {
-      reply_markup: mainMenuMarkup(),
+    await sendMessage(message.chat.id, "Send a username and password like: username password", {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  if (text === ADMIN_DASHBOARD_BUTTON_TEXT.toLowerCase()) {
+    if (currentUser?.role !== "owner") {
+      await sendMessage(message.chat.id, "Login with the owner account to open the admin dashboard.", {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    await sendMessage(message.chat.id, "Admin dashboard", {
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  if (text === USER_DASHBOARD_BUTTON_TEXT.toLowerCase()) {
+    if (!currentUser) {
+      await sendMessage(message.chat.id, "Login or register first.", {
+        reply_markup: menuMarkup(currentUser),
+      });
+      return;
+    }
+
+    await sendMessage(message.chat.id, `Dashboard for ${currentUser.username}`, {
+      reply_markup: menuMarkup(currentUser),
     });
     return;
   }
@@ -110,14 +166,22 @@ async function handleMessage(message) {
   if (text === USERS_BUTTON_TEXT.toLowerCase()) {
     const result = await botUsers.listUsersForOwner(profile.telegramUserId);
     await sendMessage(message.chat.id, result.ok ? formatUsers(result.users) : result.message, {
-      reply_markup: mainMenuMarkup(),
+      reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  if (text === LOGOUT_BUTTON_TEXT.toLowerCase()) {
+    const result = await botUsers.logoutUser(profile.telegramUserId);
+    await sendMessage(message.chat.id, result.message, {
+      reply_markup: menuMarkup(null),
     });
     return;
   }
 
   if (text === "planfam" || text === "/planfam") {
     await sendMessage(message.chat.id, "PlanFam is running.", {
-      reply_markup: mainMenuMarkup(),
+      reply_markup: menuMarkup(currentUser),
     });
     return;
   }
@@ -132,7 +196,7 @@ async function handleMessage(message) {
 
     if (!credentials) {
       await sendMessage(message.chat.id, "Send it like: username password", {
-        reply_markup: mainMenuMarkup(),
+        reply_markup: menuMarkup(currentUser),
       });
       return;
     }
@@ -144,13 +208,13 @@ async function handleMessage(message) {
 
     await botUsers.clearPendingAction(profile.telegramUserId);
     await sendMessage(message.chat.id, result.message, {
-      reply_markup: mainMenuMarkup(),
+      reply_markup: menuMarkup(result.user || (result.ok ? await botUsers.getCurrentUser(profile.telegramUserId) : currentUser)),
     });
     return;
   }
 
   await sendMessage(message.chat.id, "Choose an option.", {
-    reply_markup: mainMenuMarkup(),
+    reply_markup: menuMarkup(currentUser),
   });
 }
 
