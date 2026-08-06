@@ -32,13 +32,27 @@ The backend creates these tables through the gateway on startup:
 - `chat_owners`
 - `chat_conversations`
 - `chat_messages`
+- `chat_logs`
 
 It also seeds two owner accounts:
 
-- `habibi` / `123456`, widget key `habibi`
-- `sam` / `123456`, widget key `sam`
+- admin: `habibi` / `123456`, widget key `habibi`
+- user: `sam` / `123456`, widget key `sam`
+
+You can run the seed without starting the server:
+
+```bash
+cd backend
+npm run seed
+```
 
 `PUBLIC_BASE_URL` is the public URL of this backend. The bot uses it only when it prints widget/demo links. For local testing it can be `http://localhost:3000`. In production it should be your real domain, for example `https://chat.yourdomain.com`.
+
+There is no default owner env value. The frontend must receive the owner from the URL or widget script:
+
+```text
+http://localhost:3000/?owner=habibi
+```
 
 ## Owner Flow
 

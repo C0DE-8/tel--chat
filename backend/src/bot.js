@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const db = require("./db");
+const { logEvent } = require("./logger");
 
 const sessions = new Map();
 
@@ -94,6 +95,7 @@ function createBot({ token, publicBaseUrl }) {
     }
 
     await db.execute("UPDATE chat_owners SET telegram_chat_id = ? WHERE id = ?", [String(chatId), owner.id]);
+    await logEvent("owner_logged_in", { username }, { ownerId: owner.id });
     await sendMessage(chatId, `Logged in as ${username}.`);
     await showLinks(chatId);
   }
@@ -113,11 +115,14 @@ function createBot({ token, publicBaseUrl }) {
         "UPDATE chat_owners SET password_hash = ?, telegram_chat_id = ? WHERE id = ?",
         [passwordHash, String(chatId), existing.id]
       );
+      await logEvent("owner_registered_existing", { username }, { ownerId: existing.id });
     } else {
       await db.execute(
         "INSERT INTO chat_owners (username, password_hash, public_key, telegram_chat_id) VALUES (?, ?, ?, ?)",
         [username, passwordHash, publicKey, String(chatId)]
       );
+      const owner = await ownerByUsername(username);
+      await logEvent("owner_registered", { username }, { ownerId: owner && owner.id });
     }
 
     await sendMessage(chatId, `Account ready for ${username}.`);
@@ -143,6 +148,7 @@ function createBot({ token, publicBaseUrl }) {
       "INSERT INTO chat_messages (conversation_id, sender, body) VALUES (?, 'owner', ?)",
       [conversationId, body]
     );
+    await logEvent("owner_reply", { telegramChatId: String(chatId) }, { conversationId });
     await sendMessage(chatId, `Sent to conversation #${conversationId}.`);
   }
 
@@ -154,6 +160,7 @@ function createBot({ token, publicBaseUrl }) {
        WHERE c.id = ? AND o.telegram_chat_id = ?`,
       [conversationId, String(chatId)]
     );
+    await logEvent("conversation_closed_by_owner", { telegramChatId: String(chatId) }, { conversationId });
     await sendMessage(chatId, `Conversation #${conversationId} closed.`);
   }
 

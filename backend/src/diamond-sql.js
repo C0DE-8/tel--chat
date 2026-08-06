@@ -1,111 +1,70 @@
-const DEFAULT_TIMEOUT_MS = 15000;
+function connectProject(siteId, options = {}) {
+  const resolvedSiteId = siteId || options.siteId || process.env.SITE_ID;
+  const apiKey = options.apiKey || process.env.API_KEY;
+  const dbmsUrl = normalizeUrl(options.dbmsUrl || process.env.DBMS_URL || "http://localhost:4000");
+  const timeoutMs = Number(options.timeoutMs || process.env.DBMS_TIMEOUT_MS || 15000);
 
-function normalizeRows(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (payload && Array.isArray(payload.rows)) return payload.rows;
-  if (payload && Array.isArray(payload.data)) return payload.data;
-  if (payload && Array.isArray(payload.result)) return payload.result;
-  return payload;
-}
+  if (!resolvedSiteId) throw new Error("siteId or SITE_ID is required");
+  if (!apiKey) throw new Error("API_KEY is required");
+  if (!dbmsUrl) throw new Error("DBMS_URL is required");
+  if (!globalThis.fetch) {
+    throw new Error("global fetch is required. Use Node.js 18+.");
+  }
 
-async function postJson(url, body, headers, timeoutMs) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    let response;
+  async function gatewayRequest(path, body) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
+      const response = await fetch(`${dbmsUrl}${path}`, {
+        method: path === "/gateway/status" ? "GET" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-site-id": resolvedSiteId,
+          "x-api-key": apiKey
+        },
+        body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal
       });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || payload.message || `DBMS request failed with ${response.status}`);
+      }
+
+      return payload;
     } catch (error) {
-      const causeCode = error.cause && error.cause.code ? ` (${error.cause.code})` : "";
-      throw new Error(`Cannot reach DBMS Gateway at ${url}${causeCode}. Start the gateway or update DBMS_URL.`);
+      if (error.name === "AbortError") {
+        throw new Error(`DBMS request timed out after ${timeoutMs}ms`);
+      }
+
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-
-    if (!response.ok) {
-      const message = data && data.error ? data.error : `${response.status} ${response.statusText}`;
-      throw new Error(message);
-    }
-
-    return data;
-  } finally {
-    clearTimeout(timeout);
   }
+
+  return {
+    siteId: resolvedSiteId,
+    dbmsUrl,
+
+    async query(sql, params = []) {
+      const payload = await gatewayRequest("/gateway/query", { sql, params });
+      return payload.rows || [];
+    },
+
+    async execute(sql, params = []) {
+      return this.query(sql, params);
+    },
+
+    async status() {
+      return gatewayRequest("/gateway/status");
+    }
+  };
 }
 
-function connectProject(siteId, options = {}) {
-  if (!siteId) throw new Error("SITE_ID is required");
-  if (!options.apiKey) throw new Error("API_KEY is required");
-  if (!options.dbmsUrl) throw new Error("DBMS_URL is required");
-
-  const dbmsUrl = options.dbmsUrl.replace(/\/+$/, "");
-  const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
-  const headers = {
-    "content-type": "application/json",
-    "x-site-id": siteId,
-    "x-api-key": options.apiKey
-  };
-
-  async function call(path, body) {
-    return postJson(`${dbmsUrl}${path}`, body, headers, timeoutMs);
-  }
-
-  async function query(sql, params = []) {
-    const payload = { siteId, sql, params };
-    const paths = [
-      `/api/projects/${encodeURIComponent(siteId)}/query`,
-      `/projects/${encodeURIComponent(siteId)}/query`,
-      "/api/query",
-      "/query"
-    ];
-
-    let lastError;
-    for (const path of paths) {
-      try {
-        return normalizeRows(await call(path, payload));
-      } catch (error) {
-        lastError = error;
-        if (!/404|Cannot|not found/i.test(error.message)) break;
-      }
-    }
-
-    throw lastError;
-  }
-
-  async function execute(sql, params = []) {
-    return query(sql, params);
-  }
-
-  async function status() {
-    const paths = [
-      `/api/projects/${encodeURIComponent(siteId)}/status`,
-      `/projects/${encodeURIComponent(siteId)}/status`,
-      "/api/status",
-      "/status"
-    ];
-
-    let lastError;
-    for (const path of paths) {
-      try {
-        return await call(path, { siteId });
-      } catch (error) {
-        lastError = error;
-        if (!/404|Cannot|not found/i.test(error.message)) break;
-      }
-    }
-
-    throw lastError;
-  }
-
-  return { query, execute, status };
+function normalizeUrl(url) {
+  return String(url || "").replace(/\/$/, "");
 }
 
 module.exports = { connectProject };

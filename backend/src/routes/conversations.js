@@ -1,13 +1,14 @@
 const crypto = require("crypto");
 const express = require("express");
 const db = require("../db");
+const { logEvent } = require("../logger");
 const { rows, publicConversation, publicMessage } = require("../utils/result");
 
 function createConversationRouter({ bot }) {
   const router = express.Router();
 
   router.post("/", async (req, res) => {
-    const ownerKey = String(req.body.ownerKey || process.env.DEFAULT_OWNER_KEY || "").trim();
+    const ownerKey = String(req.body.ownerKey || "").trim();
     const visitorName = String(req.body.name || "").trim();
     const visitorEmail = String(req.body.email || "").trim().toLowerCase();
 
@@ -36,6 +37,11 @@ function createConversationRouter({ bot }) {
     await db.execute(
       "INSERT INTO chat_messages (conversation_id, sender, body) VALUES (?, 'system', ?)",
       [conversations[0].id, `${visitorName} opened the chat.`]
+    );
+    await logEvent(
+      "conversation_opened",
+      { visitorName, visitorEmail },
+      { ownerId: owners[0].id, conversationId: conversations[0].id }
     );
 
     res.status(201).json({ conversation: publicConversation(conversations[0]) });
@@ -92,6 +98,11 @@ function createConversationRouter({ bot }) {
       "INSERT INTO chat_messages (conversation_id, sender, body) VALUES (?, 'visitor', ?)",
       [conversationId, body]
     );
+    await logEvent(
+      "visitor_message",
+      { visitorName: conversations[0].visitor_name },
+      { ownerId: conversations[0].owner_id, conversationId }
+    );
     await bot.notifyOwner(conversations[0].owner_id, conversationId, conversations[0].visitor_name, body);
 
     res.status(201).json({ ok: true });
@@ -105,6 +116,7 @@ function createConversationRouter({ bot }) {
       "UPDATE chat_conversations SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ? AND visitor_token = ?",
       [conversationId, visitorToken]
     );
+    await logEvent("conversation_closed_by_visitor", {}, { conversationId });
 
     res.json({ ok: true });
   });

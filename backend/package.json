@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "check": "node --check server.js && node --check src/app.js && node --check src/routes/health.js && node --check src/routes/config.js && node --check src/routes/conversations.js && node --check src/routes/widget.js && node --check src/bot.js && node --check src/db.js && node --check src/schema.js"
+    "seed": "node seed.js",
+    "check": "node --check server.js && node --check seed.js && node --check src/app.js && node --check src/routes/health.js && node --check src/routes/config.js && node --check src/routes/conversations.js && node --check src/routes/widget.js && node --check src/bot.js && node --check src/db.js && node --check src/logger.js && node --check src/schema.js"
   },
   "keywords": [],
   "author": "",
