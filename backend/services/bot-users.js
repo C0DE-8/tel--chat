@@ -173,9 +173,20 @@ async function listUsersForOwner(telegramUserId) {
   }
 
   const users = await db.query(
-    `SELECT id, username, role, telegram_username, first_name, last_name, created_at, last_seen_at
-     FROM bot_users
-     ORDER BY created_at DESC
+    `SELECT
+       u.id,
+       u.username,
+       u.role,
+       u.telegram_username,
+       u.first_name,
+       u.last_name,
+       u.created_at,
+       u.last_seen_at,
+       o.public_key,
+       o.telegram_chat_id
+     FROM bot_users u
+     LEFT JOIN chat_owners o ON o.username = u.username
+     ORDER BY u.created_at DESC
      LIMIT 50`
   );
 

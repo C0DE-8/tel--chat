@@ -53,6 +53,22 @@ async function getConversationByToken(visitorToken) {
   return rows[0] || null;
 }
 
+async function canManageConversation(telegramUserId, conversationId) {
+  const chatId = String(telegramUserId);
+  const rows = await db.query(
+    `SELECT c.id
+     FROM chat_conversations c
+     JOIN chat_owners o ON o.id = c.owner_id
+     JOIN bot_users u ON u.telegram_user_id = ?
+     WHERE c.id = ?
+       AND (u.role = 'owner' OR o.telegram_chat_id = ?)
+     LIMIT 1`,
+    [chatId, conversationId, chatId]
+  );
+
+  return Boolean(rows[0]);
+}
+
 async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
   const owner = await getOwnerByPublicKey(publicKey);
   if (!owner) {
@@ -187,6 +203,7 @@ async function notifyOwner(conversation, message) {
 module.exports = {
   addOwnerReply,
   addVisitorMessage,
+  canManageConversation,
   closeConversation,
   createConversation,
   getConversationById,

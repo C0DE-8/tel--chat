@@ -73,9 +73,22 @@ function formatUsers(users) {
   return users
     .map((user) => {
       const telegramName = user.telegram_username ? `@${user.telegram_username}` : "no Telegram username";
-      return `${user.id}. ${user.username} (${user.role}) - ${telegramName}`;
+      const publicKey = user.public_key || "missing";
+      const linked = user.telegram_chat_id ? "linked" : "not linked";
+      return `${user.id}. ${user.username} (${user.role})\nTelegram: ${telegramName} (${linked})\nWidget key: ${publicKey}`;
     })
-    .join("\n");
+    .join("\n\n");
+}
+
+function chatActionMarkup(conversationId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Reply again", callback_data: `chat:reply:${conversationId}` },
+        { text: "Close", callback_data: `chat:close:${conversationId}` },
+      ],
+    ],
+  };
 }
 
 function isConfigured() {
@@ -224,9 +237,11 @@ async function handleMessage(message) {
   if (action === "reply_chat") {
     const result = await chat.addOwnerReply(pendingSession.conversation_id, rawText);
     await botUsers.clearPendingAction(profile.telegramUserId);
-    await sendMessage(message.chat.id, result.message, {
-      reply_markup: menuMarkup(currentUser),
-    });
+    const options = result.ok
+      ? { reply_markup: chatActionMarkup(pendingSession.conversation_id) }
+      : { reply_markup: menuMarkup(currentUser) };
+
+    await sendMessage(message.chat.id, result.message, options);
     return;
   }
 
@@ -243,9 +258,9 @@ async function handleCallbackQuery(callbackQuery) {
   if (!data.startsWith("chat:") || !telegramUserId) return;
 
   const currentUser = await botUsers.getCurrentUser(telegramUserId);
-  if (currentUser?.role !== "owner") {
-    await answerCallbackQuery(callbackQuery.id, "Owner login required.");
-    await sendMessage(chatId, "Login with the owner account to manage chats.", {
+  if (!currentUser) {
+    await answerCallbackQuery(callbackQuery.id, "Login required.");
+    await sendMessage(chatId, "Login to manage chats.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -256,6 +271,15 @@ async function handleCallbackQuery(callbackQuery) {
 
   if (!Number.isInteger(conversationId) || conversationId <= 0) {
     await answerCallbackQuery(callbackQuery.id, "Invalid chat.");
+    return;
+  }
+
+  const canManage = await chat.canManageConversation(telegramUserId, conversationId);
+  if (!canManage) {
+    await answerCallbackQuery(callbackQuery.id, "You cannot manage this chat.");
+    await sendMessage(chatId, "This chat belongs to another widget key.", {
+      reply_markup: menuMarkup(currentUser),
+    });
     return;
   }
 
