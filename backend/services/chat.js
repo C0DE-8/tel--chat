@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const botUsers = require("./bot-users");
 const db = require("./db");
 
 function publicConversation(row) {
@@ -420,19 +421,23 @@ async function notifyOwner(conversation, message) {
   const bot = require("./bot");
 
   for (const owner of linkedOwners) {
+    const isActive = await botUsers.isActiveChatSession(owner.telegram_chat_id, conversation.id);
+    const options = isActive
+      ? {}
+      : {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Open", callback_data: `chat:open:${conversation.id}` },
+                { text: "Close", callback_data: `chat:close:${conversation.id}` },
+              ],
+            ],
+          },
+        };
     const sent = await bot.sendMessage(
       owner.telegram_chat_id,
       `${conversation.visitor_name}\n${message.body}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "Open", callback_data: `chat:open:${conversation.id}` },
-              { text: "Close", callback_data: `chat:close:${conversation.id}` },
-            ],
-          ],
-        },
-      }
+      options
     );
     await rememberTelegramMessage({
       telegramChatId: owner.telegram_chat_id,

@@ -34,6 +34,11 @@ async function getPendingAction(telegramUserId) {
   return session?.action || null;
 }
 
+async function isActiveChatSession(telegramUserId, conversationId) {
+  const session = await getPendingSession(telegramUserId);
+  return session?.action === "active_chat" && Number(session.conversation_id) === Number(conversationId);
+}
+
 async function clearPendingAction(telegramUserId) {
   await db.execute("DELETE FROM bot_user_sessions WHERE telegram_user_id = ?", [telegramUserId]);
 }
@@ -326,6 +331,7 @@ module.exports = {
   getPendingAction,
   getPendingSession,
   getUiMessageIds,
+  isActiveChatSession,
   listUsersForOwner,
   loginUser,
   logoutUser,
