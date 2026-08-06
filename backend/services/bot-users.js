@@ -38,6 +38,29 @@ async function clearPendingAction(telegramUserId) {
   await db.execute("DELETE FROM bot_user_sessions WHERE telegram_user_id = ?", [telegramUserId]);
 }
 
+async function getUiMessageIds(telegramUserId) {
+  const rows = await db.query("SELECT message_ids FROM bot_ui_messages WHERE telegram_user_id = ? LIMIT 1", [
+    telegramUserId,
+  ]);
+  if (!rows[0]?.message_ids) return [];
+
+  try {
+    const ids = JSON.parse(rows[0].message_ids);
+    return Array.isArray(ids) ? ids.filter((id) => Number.isInteger(Number(id))).map(Number) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function setUiMessageIds(telegramUserId, messageIds) {
+  await db.execute(
+    `INSERT INTO bot_ui_messages (telegram_user_id, message_ids)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE message_ids = VALUES(message_ids)`,
+    [telegramUserId, JSON.stringify(messageIds)]
+  );
+}
+
 async function requireOwner(telegramUserId) {
   const owner = await findByTelegramUserId(telegramUserId);
   return Boolean(owner && owner.role === "owner");
@@ -301,11 +324,13 @@ module.exports = {
   getCurrentUser,
   getPendingAction,
   getPendingSession,
+  getUiMessageIds,
   listUsersForOwner,
   loginUser,
   logoutUser,
   setUserPublicKey,
   registerUser,
   setPendingAction,
+  setUiMessageIds,
   telegramProfile,
 };

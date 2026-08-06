@@ -221,48 +221,68 @@ function formatConversationHistory(result) {
 async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
   const result = await botUsers.listUsersForOwner(telegramUserId);
   if (!result.ok) {
-    await sendMessage(chatId, result.message, {
+    await sendUiMessage(chatId, telegramUserId, result.message, {
       reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
-  await sendMessage(chatId, result.users.length ? "Manage users below." : "No users yet.", {
-    reply_markup: menuMarkup(currentUser),
-  });
+  const items = [
+    {
+      text: result.users.length ? "Manage users below." : "No users yet.",
+      options: { reply_markup: menuMarkup(currentUser) },
+    },
+  ];
 
   for (const user of result.users) {
-    await sendMessage(chatId, formatUser(user), {
-      reply_markup: userActionMarkup(user),
+    items.push({
+      text: formatUser(user),
+      options: { reply_markup: userActionMarkup(user) },
     });
   }
+
+  await sendUiMessages(chatId, telegramUserId, items);
 }
 
-async function sendChatDashboard(chatId, telegramUserId, currentUser) {
+async function sendChatDashboard(chatId, telegramUserId, currentUser, introText = null) {
   if (!currentUser) {
-    await sendMessage(chatId, "Login or register first.", {
+    await sendUiMessage(chatId, telegramUserId, "Login or register first.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
   const conversations = await chat.listConversationsForUser(telegramUserId);
-  if (!conversations.length) {
-    await sendMessage(chatId, "No saved chats in the database. If chats were cleared, older Telegram cards are only message history. New website chats will appear here.", {
-      reply_markup: menuMarkup(currentUser),
+  const items = [];
+  if (introText) {
+    items.push({
+      text: introText,
+      options: { reply_markup: menuMarkup(currentUser) },
     });
+  }
+
+  if (!conversations.length) {
+    items.push({
+      text: "No saved chats in the database. If chats were cleared, older Telegram cards are only message history. New website chats will appear here.",
+      options: { reply_markup: menuMarkup(currentUser) },
+    });
+    await sendUiMessages(chatId, telegramUserId, items);
     return;
   }
 
-  await sendMessage(chatId, `Chats: ${conversations.length}`, {
-    reply_markup: menuMarkup(currentUser),
+  items.push({
+    text: `Chats: ${conversations.length}`,
+    options: { reply_markup: menuMarkup(currentUser) },
   });
 
   for (const conversation of conversations) {
-    await sendMessage(chatId, formatOpenChat(conversation), {
-      reply_markup: chatListActionMarkup(conversation),
+    items.push({
+      text: formatOpenChat(conversation),
+      options: { reply_markup: chatListActionMarkup(conversation) },
     });
   }
+
+  await sendUiMessages(chatId, telegramUserId, items);
 }
 
 function isConfigured() {
@@ -292,6 +312,48 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
+async function deleteMessage(chatId, messageId) {
+  return telegram("deleteMessage", {
+    chat_id: chatId,
+    message_id: messageId,
+  });
+}
+
+async function clearUiMessages(chatId, telegramUserId) {
+  const messageIds = await botUsers.getUiMessageIds(telegramUserId);
+  if (!messageIds.length) return;
+
+  for (const messageId of messageIds) {
+    try {
+      await deleteMessage(chatId, messageId);
+    } catch {
+      // Telegram rejects deletes for messages that are too old or already gone.
+    }
+  }
+
+  await botUsers.setUiMessageIds(telegramUserId, []);
+}
+
+async function sendUiMessage(chatId, telegramUserId, text, options = {}) {
+  await clearUiMessages(chatId, telegramUserId);
+  const sent = await sendMessage(chatId, text, options);
+  await botUsers.setUiMessageIds(telegramUserId, [sent.message_id]);
+  return sent;
+}
+
+async function sendUiMessages(chatId, telegramUserId, items) {
+  await clearUiMessages(chatId, telegramUserId);
+  const sentIds = [];
+
+  for (const item of items) {
+    const sent = await sendMessage(chatId, item.text, item.options || {});
+    if (sent?.message_id) sentIds.push(sent.message_id);
+  }
+
+  await botUsers.setUiMessageIds(telegramUserId, sentIds);
+  return sentIds;
+}
+
 async function answerCallbackQuery(callbackQueryId, text) {
   return telegram("answerCallbackQuery", {
     callback_query_id: callbackQueryId,
@@ -308,7 +370,7 @@ async function handleMessage(message) {
   const currentUser = await botUsers.getCurrentUser(profile.telegramUserId);
 
   if (!rawText || text === "/start") {
-    await sendMessage(message.chat.id, "Choose an option.", {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, "Choose an option.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -316,7 +378,7 @@ async function handleMessage(message) {
 
   if (text === LOGIN_BUTTON_TEXT.toLowerCase()) {
     await botUsers.setPendingAction(profile.telegramUserId, "login");
-    await sendMessage(message.chat.id, "Send your username and password like: username password", {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, "Send your username and password like: username password", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -324,7 +386,7 @@ async function handleMessage(message) {
 
   if (text === REGISTER_BUTTON_TEXT.toLowerCase()) {
     await botUsers.setPendingAction(profile.telegramUserId, "register");
-    await sendMessage(message.chat.id, "Send a username and password like: username password", {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, "Send a username and password like: username password", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -332,13 +394,13 @@ async function handleMessage(message) {
 
   if (text === ADMIN_DASHBOARD_BUTTON_TEXT.toLowerCase()) {
     if (currentUser?.role !== "owner") {
-      await sendMessage(message.chat.id, "Login with the owner account to open the admin dashboard.", {
+      await sendUiMessage(message.chat.id, profile.telegramUserId, "Login with the owner account to open the admin dashboard.", {
         reply_markup: menuMarkup(currentUser),
       });
       return;
     }
 
-    await sendMessage(message.chat.id, "Admin dashboard", {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, "Admin dashboard", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -346,13 +408,13 @@ async function handleMessage(message) {
 
   if (text === USER_DASHBOARD_BUTTON_TEXT.toLowerCase()) {
     if (!currentUser) {
-      await sendMessage(message.chat.id, "Login or register first.", {
+      await sendUiMessage(message.chat.id, profile.telegramUserId, "Login or register first.", {
         reply_markup: menuMarkup(currentUser),
       });
       return;
     }
 
-    await sendMessage(message.chat.id, `Dashboard for ${currentUser.username}`, {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, `Dashboard for ${currentUser.username}`, {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -365,7 +427,7 @@ async function handleMessage(message) {
 
   if (text === LOGOUT_BUTTON_TEXT.toLowerCase()) {
     const result = await botUsers.logoutUser(profile.telegramUserId);
-    await sendMessage(message.chat.id, result.message, {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
       reply_markup: menuMarkup(null),
     });
     return;
@@ -385,7 +447,7 @@ async function handleMessage(message) {
     const credentials = parseCredentials(directLoginText || directRegisterText || rawText);
 
     if (!credentials) {
-      await sendMessage(message.chat.id, "Send it like: username password", {
+      await sendUiMessage(message.chat.id, profile.telegramUserId, "Send it like: username password", {
         reply_markup: menuMarkup(currentUser),
       });
       return;
@@ -398,11 +460,12 @@ async function handleMessage(message) {
 
     await botUsers.clearPendingAction(profile.telegramUserId);
     const resolvedUser = result.user || (result.ok ? await botUsers.getCurrentUser(profile.telegramUserId) : currentUser);
-    await sendMessage(message.chat.id, result.message, {
-      reply_markup: menuMarkup(resolvedUser),
-    });
     if (result.ok) {
-      await sendChatDashboard(message.chat.id, profile.telegramUserId, resolvedUser);
+      await sendChatDashboard(message.chat.id, profile.telegramUserId, resolvedUser, result.message);
+    } else {
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
+        reply_markup: menuMarkup(resolvedUser),
+      });
     }
     return;
   }
@@ -414,7 +477,7 @@ async function handleMessage(message) {
       ? { reply_markup: chatActionMarkup(pendingSession.conversation_id) }
       : { reply_markup: menuMarkup(currentUser) };
 
-    await sendMessage(message.chat.id, result.message, options);
+    await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, options);
     return;
   }
 
@@ -425,13 +488,13 @@ async function handleMessage(message) {
       publicKey: rawText,
     });
     await botUsers.clearPendingAction(profile.telegramUserId);
-    await sendMessage(message.chat.id, result.message, {
+    await sendUiMessage(message.chat.id, profile.telegramUserId, result.message, {
       reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
-  await sendMessage(message.chat.id, "Choose an option.", {
+  await sendUiMessage(message.chat.id, profile.telegramUserId, "Choose an option.", {
     reply_markup: menuMarkup(currentUser),
   });
 }
@@ -446,7 +509,7 @@ async function handleCallbackQuery(callbackQuery) {
   const currentUser = await botUsers.getCurrentUser(telegramUserId);
   if (!currentUser) {
     await answerCallbackQuery(callbackQuery.id, "Login required.");
-    await sendMessage(chatId, "Login to manage chats.", {
+    await sendUiMessage(chatId, telegramUserId, "Login to manage chats.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -468,7 +531,7 @@ async function handleCallbackQuery(callbackQuery) {
     if (action === "setkey") {
       await botUsers.setPendingAction(telegramUserId, "set_user_key", userId);
       await answerCallbackQuery(callbackQuery.id, "Send the widget key.");
-      await sendMessage(chatId, "Send the widget key to assign. You can reuse an existing key for multiple users.", {
+      await sendUiMessage(chatId, telegramUserId, "Send the widget key to assign. You can reuse an existing key for multiple users.", {
         reply_markup: menuMarkup(currentUser),
       });
       return;
@@ -477,7 +540,7 @@ async function handleCallbackQuery(callbackQuery) {
     if (action === "addkey") {
       const result = await botUsers.addMissingPublicKey({ adminTelegramUserId: telegramUserId, userId });
       await answerCallbackQuery(callbackQuery.id, result.message);
-      await sendMessage(chatId, result.message, {
+      await sendUiMessage(chatId, telegramUserId, result.message, {
         reply_markup: menuMarkup(currentUser),
       });
       return;
@@ -486,7 +549,7 @@ async function handleCallbackQuery(callbackQuery) {
     if (action === "delete") {
       const result = await botUsers.deleteUser({ adminTelegramUserId: telegramUserId, userId });
       await answerCallbackQuery(callbackQuery.id, result.message);
-      await sendMessage(chatId, result.message, {
+      await sendUiMessage(chatId, telegramUserId, result.message, {
         reply_markup: menuMarkup(currentUser),
       });
       return;
@@ -507,7 +570,7 @@ async function handleCallbackQuery(callbackQuery) {
   const existingConversation = await chat.getConversationById(conversationId);
   if (!existingConversation) {
     await answerCallbackQuery(callbackQuery.id, "Chat was cleared.");
-    await sendMessage(chatId, `Chat #${conversationId} was cleared from the database. It can no longer be viewed, replied to, or closed.`, {
+    await sendUiMessage(chatId, telegramUserId, `Chat #${conversationId} was cleared from the database. It can no longer be viewed, replied to, or closed.`, {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -516,7 +579,7 @@ async function handleCallbackQuery(callbackQuery) {
   const canManage = await chat.canManageConversation(telegramUserId, conversationId);
   if (!canManage) {
     await answerCallbackQuery(callbackQuery.id, "You cannot manage this chat.");
-    await sendMessage(chatId, "This chat belongs to another widget key.", {
+    await sendUiMessage(chatId, telegramUserId, "This chat belongs to another widget key.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -525,7 +588,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (action === "reply") {
     await botUsers.setPendingAction(telegramUserId, "reply_chat", conversationId);
     await answerCallbackQuery(callbackQuery.id, `Replying to chat #${conversationId}`);
-    await sendMessage(chatId, `Send your reply for chat #${conversationId}.`, {
+    await sendUiMessage(chatId, telegramUserId, `Send your reply for chat #${conversationId}.`, {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -534,7 +597,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (action === "view") {
     const result = await chat.listConversationHistory(conversationId);
     await answerCallbackQuery(callbackQuery.id, `Chat #${conversationId}`);
-    await sendMessage(chatId, formatConversationHistory(result), {
+    await sendUiMessage(chatId, telegramUserId, formatConversationHistory(result), {
       reply_markup: chatListActionMarkup(result.conversation),
     });
     return;
@@ -543,7 +606,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (action === "close") {
     const result = await chat.closeConversation(conversationId);
     await answerCallbackQuery(callbackQuery.id, result.message);
-    await sendMessage(chatId, result.message, {
+    await sendUiMessage(chatId, telegramUserId, result.message, {
       reply_markup: menuMarkup(currentUser),
     });
   }
