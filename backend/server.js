@@ -4,8 +4,17 @@ const port = Number(process.env.PORT || 3000);
 
 startServices()
   .then(() => {
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       console.log(`Chat backend listening on http://localhost:${port}`);
+    });
+
+    server.on("error", (error) => {
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${port} is already in use. Stop the other server or change PORT in backend/.env.`);
+        process.exit(1);
+      }
+
+      throw error;
     });
   })
   .catch((error) => {

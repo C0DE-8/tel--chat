@@ -10,6 +10,7 @@ const { createHealthRouter } = require("./routes/health");
 const { createConfigRouter } = require("./routes/config");
 const { createConversationRouter } = require("./routes/conversations");
 const { createWidgetRouter } = require("./routes/widget");
+const { logEvent } = require("./logger");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -31,6 +32,7 @@ app.use("/widget", createWidgetRouter({ publicBaseUrl }));
 
 async function startServices() {
   await initializeSchema();
+  await logEvent("server_services_started", { telegramPolling: process.env.TELEGRAM_POLLING !== "false" });
   bot.start();
 }
 

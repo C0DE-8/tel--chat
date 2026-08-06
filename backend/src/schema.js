@@ -68,6 +68,11 @@ async function initializeSchema() {
 
   await seedOwner("habibi", "123456", "habibi", "admin");
   await seedOwner("sam", "123456", "sam", "user");
+
+  await db.execute(
+    "INSERT INTO chat_logs (level, event, meta) VALUES ('info', 'seed_completed', ?)",
+    [JSON.stringify({ owners: ["habibi", "sam"] })]
+  ).catch(() => {});
 }
 
 async function seedOwner(username, password, publicKey, role) {
