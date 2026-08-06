@@ -14,7 +14,7 @@ function webhookPath() {
 
 router.get("/", (req, res) => {
   res.json({
-    message: "botting is runing",
+    message: "bot is runing",
     bot: bot.getStatus(),
   });
 });
