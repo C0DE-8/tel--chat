@@ -7,6 +7,16 @@ let botInfo = null;
 let lastError = null;
 let webhookUrl = null;
 
+const PLANFAM_BUTTON_TEXT = "PlanFam";
+
+function mainMenuMarkup() {
+  return {
+    keyboard: [[{ text: PLANFAM_BUTTON_TEXT }]],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+  };
+}
+
 function isConfigured() {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN);
 }
@@ -26,23 +36,29 @@ async function telegram(method, payload = {}) {
   return data.result;
 }
 
-async function sendMessage(chatId, text) {
+async function sendMessage(chatId, text, options = {}) {
   return telegram("sendMessage", {
     chat_id: chatId,
     text,
+    ...options,
   });
 }
 
 async function handleMessage(message) {
   if (!message?.chat?.id) return;
 
-  const text = String(message.text || "").trim();
-  const reply =
-    text === "/start" || text === "/health"
-      ? "botting is runing"
-      : "botting is runing";
+  const text = String(message.text || "").trim().toLowerCase();
 
-  await sendMessage(message.chat.id, reply);
+  if (text === "planfam" || text === "/planfam") {
+    await sendMessage(message.chat.id, "PlanFam is running.", {
+      reply_markup: mainMenuMarkup(),
+    });
+    return;
+  }
+
+  await sendMessage(message.chat.id, "botting is runing", {
+    reply_markup: mainMenuMarkup(),
+  });
 }
 
 async function handleUpdate(update) {
