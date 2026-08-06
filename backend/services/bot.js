@@ -17,6 +17,9 @@ const USERS_BUTTON_TEXT = "Users";
 const ADMIN_DASHBOARD_BUTTON_TEXT = "Admin Dashboard";
 const USER_DASHBOARD_BUTTON_TEXT = "Dashboard";
 const LOGOUT_BUTTON_TEXT = "Logout";
+const CLEAR_CHAT_BUTTON_TEXT = "Clear";
+const CLOSE_CHAT_BUTTON_TEXT = "Close";
+const BACK_BUTTON_TEXT = "Back";
 
 function menuMarkup(user) {
   if (user?.role === "owner") {
@@ -102,15 +105,13 @@ function userActionMarkup(user) {
   return { inline_keyboard: rows };
 }
 
-function activeChatMarkup(conversationId) {
+function activeChatMarkup() {
   return {
-    inline_keyboard: [
-      [
-        { text: "Clear", callback_data: `chat:clear:${conversationId}` },
-        { text: "Close", callback_data: `chat:close:${conversationId}` },
-        { text: "Back", callback_data: `chat:back:${conversationId}` },
-      ],
+    keyboard: [
+      [{ text: CLEAR_CHAT_BUTTON_TEXT }, { text: CLOSE_CHAT_BUTTON_TEXT }, { text: BACK_BUTTON_TEXT }],
     ],
+    resize_keyboard: true,
+    one_time_keyboard: false,
   };
 }
 
@@ -255,7 +256,7 @@ async function sendActiveChat(chatId, telegramUserId, conversationId) {
   await botUsers.setPendingAction(telegramUserId, "active_chat", conversationId);
   const result = await chat.listConversationHistory(conversationId);
   await sendUiMessage(chatId, telegramUserId, formatActiveChat(result), {
-    reply_markup: activeChatMarkup(conversationId),
+    reply_markup: activeChatMarkup(),
   });
 }
 
@@ -413,7 +414,7 @@ async function handleMessage(message) {
   }
 
   if (rawText && pendingSession?.action === "active_chat" && !activeNavigationTexts.has(text)) {
-    if (text === "back") {
+    if (text === BACK_BUTTON_TEXT.toLowerCase()) {
       if (message.message_id && text !== "/start") {
         try {
           await deleteMessage(message.chat.id, message.message_id);
@@ -426,7 +427,7 @@ async function handleMessage(message) {
       return;
     }
 
-    if (text === "clear" || text === "/clear") {
+    if (text === CLEAR_CHAT_BUTTON_TEXT.toLowerCase() || text === "/clear") {
       if (message.message_id) {
         try {
           await deleteMessage(message.chat.id, message.message_id);
@@ -447,7 +448,7 @@ async function handleMessage(message) {
       return;
     }
 
-    if (text === "close" || text === "/close") {
+    if (text === CLOSE_CHAT_BUTTON_TEXT.toLowerCase() || text === "/close") {
       if (message.message_id && text !== "/start") {
         try {
           await deleteMessage(message.chat.id, message.message_id);
