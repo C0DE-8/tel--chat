@@ -194,6 +194,7 @@ async function deleteUser({ adminTelegramUserId, userId }) {
     const conversations = await db.query("SELECT id FROM chat_conversations WHERE owner_id = ?", [owner.id]);
     for (const conversation of conversations) {
       await db.execute("DELETE FROM chat_logs WHERE conversation_id = ?", [conversation.id]);
+      await db.execute("DELETE FROM telegram_chat_messages WHERE conversation_id = ?", [conversation.id]);
       await db.execute("DELETE FROM chat_messages WHERE conversation_id = ?", [conversation.id]);
     }
     await db.execute("DELETE FROM chat_conversations WHERE owner_id = ?", [owner.id]);

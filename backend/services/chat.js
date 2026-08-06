@@ -205,6 +205,30 @@ async function listConversationHistory(conversationId) {
   };
 }
 
+async function rememberTelegramMessage({ telegramChatId, messageId, conversationId, direction }) {
+  await db.execute(
+    `INSERT INTO telegram_chat_messages (telegram_chat_id, message_id, conversation_id, direction)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE conversation_id = VALUES(conversation_id), direction = VALUES(direction)`,
+    [String(telegramChatId), messageId, conversationId, direction || "visitor"]
+  );
+}
+
+async function findConversationByTelegramMessage({ telegramChatId, messageId }) {
+  const rows = await db.query(
+    `SELECT c.*, o.username AS owner_username, o.public_key, o.telegram_chat_id
+     FROM telegram_chat_messages t
+     JOIN chat_conversations c ON c.id = t.conversation_id
+     JOIN chat_owners o ON o.id = c.owner_id
+     WHERE t.telegram_chat_id = ?
+       AND t.message_id = ?
+     LIMIT 1`,
+    [String(telegramChatId), messageId]
+  );
+
+  return rows[0] || null;
+}
+
 async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
   const owner = await getOwnerByPublicKey(publicKey);
   if (!owner) {
@@ -323,6 +347,7 @@ async function clearConversation(visitorToken) {
   }
 
   await db.execute("DELETE FROM chat_logs WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM telegram_chat_messages WHERE conversation_id = ?", [conversation.id]);
   await db.execute("DELETE FROM chat_messages WHERE conversation_id = ?", [conversation.id]);
   await db.execute("DELETE FROM chat_conversations WHERE id = ?", [conversation.id]);
 
@@ -382,20 +407,26 @@ async function notifyOwner(conversation, message) {
   const bodyLine = conversation.chat_reason === message.body ? "" : `\n\n${message.body}`;
 
   for (const owner of linkedOwners) {
-    await bot.sendMessage(
+    const sent = await bot.sendMessage(
       owner.telegram_chat_id,
-      `Chat #${conversation.id}\n${conversation.visitor_name}${reasonLine}${bodyLine}`,
+      `Client: ${conversation.visitor_name}\nChat #${conversation.id}${reasonLine}${bodyLine}\n\nReply to this Telegram message to answer the client.`,
       {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "Reply", callback_data: `chat:reply:${conversation.id}` },
+              { text: "View history", callback_data: `chat:view:${conversation.id}` },
               { text: "Close", callback_data: `chat:close:${conversation.id}` },
             ],
           ],
         },
       }
     );
+    await rememberTelegramMessage({
+      telegramChatId: owner.telegram_chat_id,
+      messageId: sent.message_id,
+      conversationId: conversation.id,
+      direction: "visitor",
+    });
   }
 }
 
@@ -406,9 +437,11 @@ module.exports = {
   clearConversation,
   closeConversation,
   createConversation,
+  findConversationByTelegramMessage,
   getConversationById,
   listConversationHistory,
   listConversationsForUser,
   listMessages,
   rateConversation,
+  rememberTelegramMessage,
 };

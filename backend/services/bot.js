@@ -366,6 +366,47 @@ async function handleMessage(message) {
 
   const rawText = String(message.text || "").trim();
   const text = rawText.toLowerCase();
+  const profile = botUsers.telegramProfile(message);
+  const currentUser = await botUsers.getCurrentUser(profile.telegramUserId);
+
+  if (rawText && message.reply_to_message?.message_id) {
+    const conversation = await chat.findConversationByTelegramMessage({
+      telegramChatId: message.chat.id,
+      messageId: message.reply_to_message.message_id,
+    });
+
+    if (conversation) {
+      if (!currentUser) {
+        await sendUiMessage(message.chat.id, profile.telegramUserId, "Login before replying to website chats.", {
+          reply_markup: menuMarkup(currentUser),
+        });
+        return;
+      }
+
+      const canManage = await chat.canManageConversation(profile.telegramUserId, conversation.id);
+      if (!canManage) {
+        await sendUiMessage(message.chat.id, profile.telegramUserId, "This chat belongs to another widget key.", {
+          reply_markup: menuMarkup(currentUser),
+        });
+        return;
+      }
+
+      const result = await chat.addOwnerReply(conversation.id, rawText);
+      if (result.ok) {
+        await chat.rememberTelegramMessage({
+          telegramChatId: message.chat.id,
+          messageId: message.message_id,
+          conversationId: conversation.id,
+          direction: "owner",
+        });
+      }
+
+      await sendUiMessage(message.chat.id, profile.telegramUserId, result.ok ? "Delivered to client." : result.message, {
+        reply_markup: result.ok ? chatActionMarkup(conversation.id) : menuMarkup(currentUser),
+      });
+      return;
+    }
+  }
 
   if (message.message_id && text !== "/start") {
     try {
@@ -374,9 +415,6 @@ async function handleMessage(message) {
       // Best effort: private-chat user messages may already be gone or not deletable.
     }
   }
-
-  const profile = botUsers.telegramProfile(message);
-  const currentUser = await botUsers.getCurrentUser(profile.telegramUserId);
 
   if (!rawText || text === "/start") {
     await sendUiMessage(message.chat.id, profile.telegramUserId, "Choose an option.", {
