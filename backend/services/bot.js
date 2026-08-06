@@ -248,7 +248,7 @@ async function sendChatDashboard(chatId, telegramUserId, currentUser) {
 
   const conversations = await chat.listConversationsForUser(telegramUserId);
   if (!conversations.length) {
-    await sendMessage(chatId, "No chats yet. New website messages will appear here.", {
+    await sendMessage(chatId, "No saved chats in the database. If chats were cleared, older Telegram cards are only message history. New website chats will appear here.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
@@ -501,6 +501,15 @@ async function handleCallbackQuery(callbackQuery) {
 
   if (!Number.isInteger(conversationId) || conversationId <= 0) {
     await answerCallbackQuery(callbackQuery.id, "Invalid chat.");
+    return;
+  }
+
+  const existingConversation = await chat.getConversationById(conversationId);
+  if (!existingConversation) {
+    await answerCallbackQuery(callbackQuery.id, "Chat was cleared.");
+    await sendMessage(chatId, `Chat #${conversationId} was cleared from the database. It can no longer be viewed, replied to, or closed.`, {
+      reply_markup: menuMarkup(currentUser),
+    });
     return;
   }
 
