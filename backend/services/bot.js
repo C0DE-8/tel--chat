@@ -364,6 +364,14 @@ async function answerCallbackQuery(callbackQueryId, text) {
 async function handleMessage(message) {
   if (!message?.chat?.id) return;
 
+  if (message.message_id) {
+    try {
+      await deleteMessage(message.chat.id, message.message_id);
+    } catch {
+      // Best effort: private-chat user messages may already be gone or not deletable.
+    }
+  }
+
   const rawText = String(message.text || "").trim();
   const text = rawText.toLowerCase();
   const profile = botUsers.telegramProfile(message);
