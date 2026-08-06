@@ -118,7 +118,12 @@ TELEGRAM_BOT_TOKEN=your Telegram bot token
 TELEGRAM_POLLING=false
 ```
 
-Vercel uses `api/index.js` as the serverless API entry. Telegram polling is disabled on Vercel; use the webhook endpoint instead:
+Vercel can use either repo root or `backend/` as the project root. This repo includes both configs:
+
+- repo root: `vercel.json` and `api/index.js`
+- backend root: `backend/vercel.json` and `backend/api/index.js`
+
+Telegram polling is disabled on Vercel; use the webhook endpoint instead:
 
 ```text
 https://tel-chat.vercel.app/api/telegram/webhook
