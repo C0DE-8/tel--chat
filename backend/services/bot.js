@@ -5,6 +5,7 @@ let lastUpdateId = 0;
 let pollTimer = null;
 let botInfo = null;
 let lastError = null;
+let webhookUrl = null;
 
 function isConfigured() {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN);
@@ -44,6 +45,17 @@ async function handleMessage(message) {
   await sendMessage(message.chat.id, reply);
 }
 
+async function handleUpdate(update) {
+  try {
+    lastUpdateId = Math.max(lastUpdateId, update?.update_id || 0);
+    await handleMessage(update?.message);
+    lastError = null;
+  } catch (error) {
+    lastError = error.message;
+    throw error;
+  }
+}
+
 async function pollOnce() {
   const updates = await telegram("getUpdates", {
     offset: lastUpdateId + 1,
@@ -52,8 +64,7 @@ async function pollOnce() {
   });
 
   for (const update of updates) {
-    lastUpdateId = Math.max(lastUpdateId, update.update_id || 0);
-    await handleMessage(update.message);
+    await handleUpdate(update);
   }
 }
 
@@ -89,6 +100,44 @@ async function startBot() {
   return getStatus();
 }
 
+async function setWebhook(url, options = {}) {
+  if (!isConfigured()) {
+    throw new Error("TELEGRAM_BOT_TOKEN is required");
+  }
+  if (!url) {
+    throw new Error("webhook URL is required");
+  }
+
+  const payload = {
+    url,
+    allowed_updates: ["message"],
+    drop_pending_updates: Boolean(options.dropPendingUpdates),
+  };
+
+  if (options.secretToken) {
+    payload.secret_token = options.secretToken;
+  }
+
+  const result = await telegram("setWebhook", payload);
+  webhookUrl = url;
+  return result;
+}
+
+async function getWebhookInfo() {
+  if (!isConfigured()) {
+    throw new Error("TELEGRAM_BOT_TOKEN is required");
+  }
+
+  return telegram("getWebhookInfo");
+}
+
+function verifyWebhookSecret(req) {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!expected) return true;
+
+  return req.header("x-telegram-bot-api-secret-token") === expected;
+}
+
 function stopBot() {
   isRunning = false;
   if (pollTimer) {
@@ -102,6 +151,7 @@ function getStatus() {
     configured: isConfigured(),
     running: isRunning,
     username: botInfo?.username || null,
+    webhookUrl,
     lastUpdateId,
     lastError,
   };
@@ -109,7 +159,11 @@ function getStatus() {
 
 module.exports = {
   getStatus,
+  getWebhookInfo,
+  handleUpdate,
   sendMessage,
+  setWebhook,
   startBot,
   stopBot,
+  verifyWebhookSecret,
 };

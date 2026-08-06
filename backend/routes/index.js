@@ -35,4 +35,33 @@ router.get("/bot", (req, res) => {
   });
 });
 
+router.get("/bot/webhook", async (req, res) => {
+  try {
+    const webhook = await bot.getWebhookInfo();
+
+    res.json({
+      ok: true,
+      webhook,
+    });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+router.post("/telegram/webhook", async (req, res) => {
+  if (!bot.verifyWebhookSecret(req)) {
+    return res.status(401).json({ ok: false, error: "Invalid webhook secret" });
+  }
+
+  try {
+    await bot.handleUpdate(req.body);
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 module.exports = router;
