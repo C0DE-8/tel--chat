@@ -20,19 +20,20 @@ router.get("/config", (req, res) => {
 router.post("/conversations", async (req, res) => {
   try {
     const chatReason = String(req.body.chatReason || "").trim();
-    const conversation = await chat.createConversation({
+    const result = await chat.createConversation({
       publicKey: req.body.publicKey,
       visitorName: req.body.visitorName,
       visitorEmail: req.body.visitorEmail,
       chatReason,
     });
+    const { conversation, reused } = result;
 
     let message = null;
-    if (chatReason) {
+    if (chatReason && !reused) {
       message = await chat.addVisitorMessage(conversation.visitorToken, chatReason);
     }
 
-    res.status(201).json({ ok: true, conversation, message });
+    res.status(reused ? 200 : 201).json({ ok: true, conversation, reused, message });
   } catch (error) {
     sendError(res, error);
   }
@@ -75,6 +76,15 @@ router.post("/conversations/:visitorToken/rating", async (req, res) => {
   try {
     const conversation = await chat.rateConversation(req.params.visitorToken, req.body.rating);
     res.json({ ok: true, conversation });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.delete("/conversations/:visitorToken", async (req, res) => {
+  try {
+    const result = await chat.clearConversation(req.params.visitorToken);
+    res.json(result);
   } catch (error) {
     sendError(res, error);
   }

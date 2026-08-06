@@ -44,7 +44,9 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || "Chat request failed");
+      const error = new Error(payload.error || "Chat request failed");
+      error.status = response.status;
+      throw error;
     }
     return payload;
   }
@@ -196,6 +198,12 @@
         titleEl.textContent = "Chat ended";
       }
       renderRating(payload.conversation);
+    } catch (error) {
+      if (error.status === 404) {
+        resetConversation();
+        return;
+      }
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -230,6 +238,21 @@
       await loadMessages();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function clearConversation() {
+    const token = visitorToken;
+    resetConversation();
+
+    if (!token) return;
+
+    try {
+      await api(`/widget/conversations/${token}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      if (error.status !== 404) throw error;
     }
   }
 
@@ -353,7 +376,7 @@
     closeButtonEl = el("button", { class: "tc-close-chat", type: "button", text: "End chat" });
     closeButtonEl.addEventListener("click", function () {
       if (closeButtonMode === "new") {
-        resetConversation();
+        clearConversation().catch((error) => renderSystem(error.message));
         return;
       }
 

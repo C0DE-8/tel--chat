@@ -71,12 +71,57 @@ async function canManageConversation(telegramUserId, conversationId) {
   return Boolean(rows[0]);
 }
 
+async function findLatestOpenConversation({ ownerId, visitorName, visitorEmail }) {
+  const name = String(visitorName || "").trim().toLowerCase();
+  const email = String(visitorEmail || "").trim().toLowerCase();
+  const matches = [];
+  const params = [ownerId];
+
+  if (email) {
+    matches.push("LOWER(visitor_email) = ?");
+    params.push(email);
+  }
+
+  if (name) {
+    matches.push("LOWER(visitor_name) = ?");
+    params.push(name);
+  }
+
+  if (!matches.length) return null;
+
+  const rows = await db.query(
+    `SELECT c.*, o.username AS owner_username, o.telegram_chat_id
+     FROM chat_conversations c
+     JOIN chat_owners o ON o.id = c.owner_id
+     WHERE c.owner_id = ?
+       AND c.status = 'open'
+       AND (${matches.join(" OR ")})
+     ORDER BY c.created_at DESC, c.id DESC
+     LIMIT 1`,
+    params
+  );
+
+  return rows[0] || null;
+}
+
 async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
   const owner = await getOwnerByPublicKey(publicKey);
   if (!owner) {
     const error = new Error("Invalid widget key");
     error.status = 404;
     throw error;
+  }
+
+  const existingConversation = await findLatestOpenConversation({
+    ownerId: owner.id,
+    visitorName,
+    visitorEmail,
+  });
+  if (existingConversation) {
+    return {
+      conversation: publicConversation(existingConversation),
+      reused: true,
+    };
   }
 
   const token = crypto.randomUUID();
@@ -87,7 +132,10 @@ async function createConversation({ publicKey, visitorName, visitorEmail, chatRe
   );
 
   const conversation = await getConversationById(result.insertId);
-  return publicConversation(conversation);
+  return {
+    conversation: publicConversation(conversation),
+    reused: false,
+  };
 }
 
 async function listMessages(visitorToken) {
@@ -167,6 +215,19 @@ async function closeConversation(conversationId) {
   return { ok: true, message: `Chat #${conversation.id} ended.` };
 }
 
+async function clearConversation(visitorToken) {
+  const conversation = await getConversationByToken(visitorToken);
+  if (!conversation) {
+    return { ok: true, message: "Chat already cleared." };
+  }
+
+  await db.execute("DELETE FROM chat_logs WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM chat_messages WHERE conversation_id = ?", [conversation.id]);
+  await db.execute("DELETE FROM chat_conversations WHERE id = ?", [conversation.id]);
+
+  return { ok: true, message: "Chat cleared." };
+}
+
 async function rateConversation(visitorToken, rating) {
   const conversation = await getConversationByToken(visitorToken);
   if (!conversation) {
@@ -236,6 +297,7 @@ module.exports = {
   addOwnerReply,
   addVisitorMessage,
   canManageConversation,
+  clearConversation,
   closeConversation,
   createConversation,
   getConversationById,
