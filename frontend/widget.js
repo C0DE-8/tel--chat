@@ -1,6 +1,7 @@
 (function () {
   const currentScript = document.currentScript;
-  const apiBase = (currentScript?.dataset.apiBase || window.location.origin).replace(/\/+$/, "");
+  const scriptOrigin = currentScript?.src ? new URL(currentScript.src).origin : window.location.origin;
+  const apiBase = (currentScript?.dataset.apiBase || scriptOrigin).replace(/\/+$/, "");
   const publicKey = currentScript?.dataset.publicKey || "habibi";
   const storageKey = `tel_chat_${publicKey}`;
 
