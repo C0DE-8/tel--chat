@@ -33,12 +33,27 @@ The backend creates these tables through the gateway on startup:
 - `chat_conversations`
 - `chat_messages`
 
+It also seeds two owner accounts:
+
+- `habibi` / `123456`, widget key `habibi`
+- `sam` / `123456`, widget key `sam`
+
+`PUBLIC_BASE_URL` is the public URL of this backend. The bot uses it only when it prints widget/demo links. For local testing it can be `http://localhost:3000`. In production it should be your real domain, for example `https://chat.yourdomain.com`.
+
 ## Owner Flow
 
-Open your Telegram bot and send:
+Open your Telegram bot and click the buttons.
+
+To use a seeded account, click `Login`, then send:
 
 ```text
-/register username password
+habibi 123456
+```
+
+or:
+
+```text
+sam 123456
 ```
 
 The bot replies with:
@@ -47,17 +62,9 @@ The bot replies with:
 - a demo chat URL
 - an embeddable `<script>` tag
 
-When a visitor sends a message, the owner receives it in Telegram and can reply:
+When a visitor sends a message, the owner receives it in Telegram. Click `Reply`, send the conversation number, then send the reply message.
 
-```text
-/reply conversationId message
-```
-
-The owner can close the chat:
-
-```text
-/close conversationId
-```
+To close a chat, click `Close chat`, then send the conversation number.
 
 ## Visitor Flow
 
