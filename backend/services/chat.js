@@ -13,6 +13,8 @@ function publicConversation(row) {
     ratedAt: row.rated_at,
     createdAt: row.created_at,
     closedAt: row.closed_at,
+    publicKey: row.public_key,
+    ownerUsername: row.owner_username,
   };
 }
 
@@ -35,6 +37,9 @@ function publicChatSummary(row) {
     visitorEmail: row.visitor_email,
     chatReason: row.chat_reason,
     status: row.status,
+    rating: row.rating,
+    ratedAt: row.rated_at,
+    closedAt: row.closed_at,
     lastMessage: row.last_message,
     lastSender: row.last_sender,
     lastMessageAt: row.last_message_at,
@@ -126,7 +131,7 @@ async function findLatestOpenConversation({ publicKey, visitorName, visitorEmail
   return rows[0] || null;
 }
 
-async function listOpenConversationsForUser(telegramUserId) {
+async function listConversationsForUser(telegramUserId) {
   const chatId = String(telegramUserId);
   const rows = await db.query(
     `SELECT
@@ -137,7 +142,10 @@ async function listOpenConversationsForUser(telegramUserId) {
        c.visitor_email,
        c.chat_reason,
        c.status,
+       c.rating,
+       c.rated_at,
        c.created_at,
+       c.closed_at,
        COUNT(m.id) AS message_count,
        (
          SELECT cm.body
@@ -165,15 +173,36 @@ async function listOpenConversationsForUser(telegramUserId) {
      JOIN bot_users u ON u.telegram_user_id = ?
      LEFT JOIN chat_owners mine ON mine.telegram_chat_id = ?
      LEFT JOIN chat_messages m ON m.conversation_id = c.id
-     WHERE c.status = 'open'
-       AND (u.role = 'owner' OR mine.public_key = o.public_key)
-     GROUP BY c.id, o.public_key, o.username, c.visitor_name, c.visitor_email, c.chat_reason, c.status, c.created_at
+     WHERE u.role = 'owner' OR mine.public_key = o.public_key
+     GROUP BY c.id, o.public_key, o.username, c.visitor_name, c.visitor_email, c.chat_reason, c.status, c.rating, c.rated_at, c.created_at, c.closed_at
      ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC
      LIMIT 20`,
     [chatId, chatId]
   );
 
   return rows.map(publicChatSummary);
+}
+
+async function listConversationHistory(conversationId) {
+  const conversation = await getConversationById(conversationId);
+  if (!conversation) {
+    const error = new Error("Conversation not found");
+    error.status = 404;
+    throw error;
+  }
+
+  const rows = await db.query(
+    `SELECT id, conversation_id, sender, body, created_at
+     FROM chat_messages
+     WHERE conversation_id = ?
+     ORDER BY created_at ASC, id ASC`,
+    [conversation.id]
+  );
+
+  return {
+    conversation: publicConversation(conversation),
+    messages: rows.map(publicMessage),
+  };
 }
 
 async function createConversation({ publicKey, visitorName, visitorEmail, chatReason }) {
@@ -378,7 +407,8 @@ module.exports = {
   closeConversation,
   createConversation,
   getConversationById,
-  listOpenConversationsForUser,
+  listConversationHistory,
+  listConversationsForUser,
   listMessages,
   rateConversation,
 };

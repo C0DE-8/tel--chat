@@ -106,11 +106,27 @@ function chatActionMarkup(conversationId) {
   return {
     inline_keyboard: [
       [
+        { text: "View history", callback_data: `chat:view:${conversationId}` },
+      ],
+      [
         { text: "Reply again", callback_data: `chat:reply:${conversationId}` },
         { text: "Close", callback_data: `chat:close:${conversationId}` },
       ],
     ],
   };
+}
+
+function chatListActionMarkup(conversation) {
+  const rows = [[{ text: "View history", callback_data: `chat:view:${conversation.id}` }]];
+
+  if (conversation.status === "open") {
+    rows.push([
+      { text: "Reply", callback_data: `chat:reply:${conversation.id}` },
+      { text: "Close", callback_data: `chat:close:${conversation.id}` },
+    ]);
+  }
+
+  return { inline_keyboard: rows };
 }
 
 function formatDateTime(value) {
@@ -149,8 +165,10 @@ function formatOpenChat(conversation) {
     `Widget key: ${conversation.publicKey}`,
     `Assigned to: ${conversation.ownerUsername}`,
     `Started: ${formatDateTime(conversation.createdAt)}`,
+    conversation.closedAt ? `Ended: ${formatDateTime(conversation.closedAt)}` : null,
+    conversation.rating ? `Rating: ${conversation.rating}/5` : null,
     `Messages: ${conversation.messageCount || 0}`,
-  ];
+  ].filter(Boolean);
 
   if (conversation.chatReason) {
     lines.push("", "Reason", clipText(conversation.chatReason));
@@ -162,6 +180,42 @@ function formatOpenChat(conversation) {
   }
 
   return lines.join("\n");
+}
+
+function formatConversationHistory(result) {
+  const { conversation, messages } = result;
+  const lines = [
+    `Conversation history #${conversation.id}`,
+    "",
+    "Visitor",
+    `Name: ${conversation.visitorName || "Visitor"}`,
+    `Email: ${conversation.visitorEmail || "not provided"}`,
+    "",
+    "Details",
+    `Status: ${conversation.status}`,
+    `Widget key: ${conversation.publicKey}`,
+    `Assigned to: ${conversation.ownerUsername}`,
+    `Started: ${formatDateTime(conversation.createdAt)}`,
+    conversation.closedAt ? `Ended: ${formatDateTime(conversation.closedAt)}` : null,
+    conversation.rating ? `Rating: ${conversation.rating}/5` : null,
+  ].filter(Boolean);
+
+  if (conversation.chatReason) {
+    lines.push("", "Reason", clipText(conversation.chatReason, 180));
+  }
+
+  lines.push("", `Messages (${messages.length})`);
+
+  if (!messages.length) {
+    lines.push("No messages yet.");
+  } else {
+    for (const message of messages) {
+      const sender = message.sender === "owner" ? "Agent" : message.sender === "visitor" ? "Client" : "System";
+      lines.push(`${formatDateTime(message.createdAt)} - ${sender}: ${clipText(message.body, 180)}`);
+    }
+  }
+
+  return clipText(lines.join("\n"), 3900);
 }
 
 async function sendUsersDashboard(chatId, telegramUserId, currentUser) {
@@ -192,21 +246,21 @@ async function sendChatDashboard(chatId, telegramUserId, currentUser) {
     return;
   }
 
-  const conversations = await chat.listOpenConversationsForUser(telegramUserId);
+  const conversations = await chat.listConversationsForUser(telegramUserId);
   if (!conversations.length) {
-    await sendMessage(chatId, "No open chats yet. New website messages will appear here.", {
+    await sendMessage(chatId, "No chats yet. New website messages will appear here.", {
       reply_markup: menuMarkup(currentUser),
     });
     return;
   }
 
-  await sendMessage(chatId, `Open chats: ${conversations.length}`, {
+  await sendMessage(chatId, `Chats: ${conversations.length}`, {
     reply_markup: menuMarkup(currentUser),
   });
 
   for (const conversation of conversations) {
     await sendMessage(chatId, formatOpenChat(conversation), {
-      reply_markup: chatActionMarkup(conversation.id),
+      reply_markup: chatListActionMarkup(conversation),
     });
   }
 }
@@ -464,6 +518,15 @@ async function handleCallbackQuery(callbackQuery) {
     await answerCallbackQuery(callbackQuery.id, `Replying to chat #${conversationId}`);
     await sendMessage(chatId, `Send your reply for chat #${conversationId}.`, {
       reply_markup: menuMarkup(currentUser),
+    });
+    return;
+  }
+
+  if (action === "view") {
+    const result = await chat.listConversationHistory(conversationId);
+    await answerCallbackQuery(callbackQuery.id, `Chat #${conversationId}`);
+    await sendMessage(chatId, formatConversationHistory(result), {
+      reply_markup: chatListActionMarkup(result.conversation),
     });
     return;
   }
