@@ -11,6 +11,8 @@ const bot = require("./services/bot");
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.set("trust proxy", true);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
